@@ -279,7 +279,7 @@ html[data-theme="dark"] body.wall-on #wall{opacity:.62}
       <div class="row"><div class="txt"><div class="lbl">日志</div></div>
         <label class="switch"><input type="checkbox" id="cfg_log"><span class="track"></span><span class="knob"></span></label></div>
       <div class="btns"><button class="btn primary" id="btnSaveCfg">保存配置</button><button class="btn" id="btnResetCfg">恢复默认</button></div>
-      <div class="btns"><button class="btn" id="btnImportSys">导入系统默认 AppList</button></div>
+      <div class="btns"><button class="btn" id="btnImportSys">导入系统默认刷新率策略</button></div>
       <div class="note" style="margin-top:8px">以上项修改后会自动保存（无需手动点保存）；点「保存配置」也会立即写入。</div>
     </div>
 
@@ -1944,7 +1944,7 @@ function syncLiquidRow(){
 function bind(){
   $("btnTheme").addEventListener("click", cycleTheme);
   if ($("btnSysDefault")) $("btnSysDefault").addEventListener("click", restoreSysDefault);
-  if ($("btnImportSys")) $("btnImportSys").addEventListener("click", importSysDefaults);
+  if ($("btnImportSys")) $("btnImportSys").addEventListener("click", openImportDlg);
   document.querySelectorAll("#themeSeg button").forEach(function(b){
     b.addEventListener("click", function(){ setTheme(b.dataset.theme); toast(b.textContent); });
   });
@@ -2089,19 +2089,20 @@ async function sysDefaultEntries(){
   var seen = {}, entries = [];
   function nameOf(p){
     var l = label[p];
-    return (l && l !== p) ? l : "";   /* 没安装/没有名字：只写包名 */
+    return (l && l !== p) ? l : "";   /* 已安装但没有名字：只写包名 */
   }
+  function installed(p){ return Object.prototype.hasOwnProperty.call(label, p); }
   function addApp(list){
     String(list || "").split(",").forEach(function(p){
       p = p.trim();
-      if (!p || seen[p]) return;
+      if (!p || seen[p] || !installed(p) || entries.length >= 500) return;
       seen[p] = 1;
       entries.push({ pkg: p, name: nameOf(p), fps: "60", game: false });
     });
   }
   function addGame(p, rate){
     p = (p || "").trim();
-    if (!p || seen[p]) return;
+    if (!p || seen[p] || !installed(p) || entries.length >= 500) return;
     seen[p] = 1;
     var e = { pkg: p, name: nameOf(p), game: true };
     if (rate) e.fps = String(rate);
@@ -2118,10 +2119,57 @@ async function sysDefaultEntries(){
   return entries;
 }
 
-async function importSysDefaults(){
+function openImportDlg(){
+  dlgLockSwitch(false);
+  $("dlgTitle").textContent = "导入系统默认刷新率策略";
+  $("dlgSub").textContent = "来源：device_features + powerkeeper 默认清单（仅本机已安装应用）";
+  $("dlgIcon").style.display = "none";
+  $("dlgRates").style.display = "none";
+  var box = $("dlgOpts");
+  box.style.display = "";
+  box.innerHTML = "";
+  function opt(icon, text, sub, fn){
+    var div = document.createElement("div");
+    div.className = "opt";
+    div.innerHTML = '<span class="o-ic">' + icon + '</span><span>' + text +
+      (sub ? '<span style="color:var(--muted);font-size:12px;display:block">' + sub + '</span>' : '') + '</span>';
+    div.addEventListener("click", fn);
+    box.appendChild(div);
+  }
+  opt("⟳", "覆盖", "清空现有 AppList 后按系统默认重新导入", function(){
+    $("dlg").style.display = "none";
+    importSysDefaults("replace");
+  });
+  opt("⊕", "合并", "保留现有条目，系统默认项更新/追加", function(){
+    $("dlg").style.display = "none";
+    importSysDefaults("merge");
+  });
+  $("dlg").style.display = "flex";
+}
+
+async function importSysDefaults(mode){
+  mode = mode || "replace";
   await exec("sh " + shq(MOD + "/tools/gen_sys_defaults.sh") + " >/dev/null 2>&1");
   var entries = await sysDefaultEntries();
-  glState.entries = entries;
+  var added = 0;
+  if (mode === "replace"){
+    glState.entries = entries;
+    added = entries.length;
+  } else {
+    var map = {};
+    glState.entries.forEach(function(e){ map[e.pkg] = e; });
+    entries.forEach(function(ne){
+      var old = map[ne.pkg];
+      if (old){
+        if (ne.fps) old.fps = ne.fps;
+        old.game = ne.game;
+        if (ne.name && (!old.name || old.name === old.pkg)) old.name = ne.name;
+      } else {
+        glState.entries.push(ne);
+        added++;
+      }
+    });
+  }
   await saveGl();
   var r = await exec("cat " + shq(CFG) + " 2>/dev/null");
   var lines = (r.stdout || "").split(/\r?\n/);
@@ -2129,8 +2177,10 @@ async function importSysDefaults(){
   await exec("echo " + b64(lines.join("\n")) + " | base64 -d > " + shq(CFG) + " && chmod 644 " + shq(CFG));
   renderApps();
   loadCfg();
-  toast("已导入系统默认：游戏 " + entries.filter(function(e){ return e.game; }).length +
-        " 个，应用 " + entries.filter(function(e){ return !e.game; }).length + " 个");
+  toast("已导入系统默认（" + (mode === "replace" ? "覆盖" : "合并") + "）：游戏 " +
+        entries.filter(function(e){ return e.game; }).length +
+        " 个，应用 " + entries.filter(function(e){ return !e.game; }).length + " 个" +
+        (mode === "merge" ? "，新增 " + added + " 条" : ""));
 }
 
 async function restoreSysDefault(){
