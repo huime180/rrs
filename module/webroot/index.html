@@ -2184,7 +2184,6 @@ async function importSysDefaults(mode){
 }
 
 async function restoreSysDefault(){
-  await importSysDefaults();
   var sd = await exec("cat /data/adb/RRS/sys_defaults 2>/dev/null");
   var m = parseCfg(sd.stdout || "");
   var max = parseInt(m.max_fps, 10) || 0;
@@ -2196,7 +2195,11 @@ async function restoreSysDefault(){
   lines = setCfgKey(lines, "sys_default", "1");
   var w = await exec("echo " + b64(lines.join("\n")) + " | base64 -d > " + shq(CFG) + " && chmod 644 " + shq(CFG));
   if (w.errno !== 0){ toast("配置写入失败"); return; }
-  toast("已切到系统默认策略：模块停止接管（KSU 模块需重启一次才完全交还系统动态）");
+  await exec("killall -TERM RRS_Daemon 2>/dev/null || true");
+  await exec("sleep 1");
+  await exec("killall -9 RRS_Daemon 2>/dev/null || true");
+  await exec("settings put system is_smart_fps 1");
+  toast("已交还系统默认：is_smart_fps=1，daemon 已停止");
   curSmartTiers = [];
   loadSysDefaults(); loadCfg(); setTimeout(refreshStatus, 800);
 }
