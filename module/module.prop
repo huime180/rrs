@@ -1,0 +1,7 @@
+id=RRS
+name=全局/动态高刷
+version=1.4.5
+versionCode=145
+updateJson=https://gh-proxy.com/https://github.com/huime180/rrs/blob/main/update.json?raw=1&v=145
+author=huime
+description=自动适配本机刷新率档位：动态/固定多档升降日常/游戏刷新率、单应用锁帧、触摸采样率(按机型适配)；支持 KernelSU WebUI 控制

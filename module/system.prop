@@ -1,0 +1,4 @@
+# 由 resetprop 读取
+ro.vendor.display.fod_monitor_default_fps=
+ro.vendor.mi_sf.ltpo.support=true
+ro.vendor.mi_sf.aod_mode_ddic_refresh_rate=1

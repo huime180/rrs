@@ -1,0 +1,10 @@
+{
+ "theme": "auto",
+ "monet": true,
+ "accent": "dynamic",
+ "style": "TonalSpot",
+ "spec": "SPEC_2025",
+ "blur": true,
+ "floatBar": true,
+ "opacity": 100
+}

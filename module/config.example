@@ -1,0 +1,45 @@
+# RRS daemon 配置：/data/adb/RRS/config，保存后自动热重载
+
+# 1 = 模块不干预，交还系统调度
+sys_default=1
+
+# 最高刷新率：0 = 本机最高；120/144/165/185 = 限制上限
+fps_cap=0
+
+# 低亮度阈值（相对亮度滑块的 0-100%），0 = 关闭
+bright_low=8
+# lock = 低亮度锁定上限单档；dyn = 保留低档的动态档位
+bright_low_mode=lock
+# 低亮度时的最高刷新率
+bright_low_cap=144
+# 动画加速目标：cap = 本机最高；ladder = 档位表最高档
+anim_boost=cap
+
+# 息屏刷新率：1 或 30，对应 ro.vendor.mi_sf.aod_mode_ddic_refresh_rate，开机生效
+aod_fps=1
+
+# 1 = 写 /data/adb/RRS/rrs.log（256KB 轮转）
+log=0
+
+# 1 = 自动识别的游戏并入 AppList 的「游戏」段
+auto_gamelist=1
+
+# 动态档位（从高到低）；留空 = 自动，单值 = 锁定该档
+# 例：185,120,60
+smart_tiers=
+
+# 每段停留（毫秒），留空 = 1000,2000
+smart_delays=1000,2000
+
+# 游戏刷新率：top / dyn / off / 数字
+game_fps=top
+
+# 触摸上报率：off / 240 / on（≥120 用 480）/ 185:370,165:330
+thp_report_rate_normal=240
+thp_report_rate_game=off
+
+# 触摸节点：安装时自动检测，通常不需要手改
+# sampling_node=/sys/class/touch/touch_dev/touch_thp_ic_cmd
+# sampling_cmd=8 3007 %d 1
+# sampling_node2=/sys/class/touch/touch_dev/touch_ic_cmd
+# sampling_cmd2=8 3007 %d 1

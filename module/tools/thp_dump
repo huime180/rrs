@@ -1,0 +1,25 @@
+#!/system/bin/sh
+# thp_dump <in.cfg> [out.ini]
+# 解密 THPC 容器（*_thp_config.cfg），输出明文 ini；不给 out 就打到 stdout。
+# 依赖同目录的 thp_repack 与 libthp_dump.so（后者把 thp_repack 内存里的明文捞出来）。
+IN="$1"
+OUT="$2"
+[ -f "$IN" ] || { echo "usage: thp_dump <in.cfg> [out.ini]" >&2; exit 2; }
+D=$(cd "$(dirname "$0")" && pwd)
+T=/data/local/tmp/.thp_plain.ini
+P=/data/local/tmp/.thp_repack_out.cfg
+rm -f "$T" "$P"
+LD_PRELOAD="$D/libthp_dump.so" "$D/thp_repack" "$IN" "$P" 240 >/dev/null 2>&1
+if [ ! -s "$T" ]; then
+    echo "thp_dump: 解密失败（不是 THPC 容器？）" >&2
+    rm -f "$P"
+    exit 1
+fi
+if [ -n "$OUT" ]; then
+    cp -f "$T" "$OUT" || { rm -f "$T" "$P"; exit 1; }
+    chmod 644 "$OUT"
+    echo "$OUT"
+else
+    cat "$T"
+fi
+rm -f "$T" "$P"

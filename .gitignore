@@ -1,0 +1,24 @@
+# Build outputs
+/dist/
+/work/
+/.zig-cache/
+/zig-out/
+*.zip
+*.tar
+*.apk
+
+# Local-only development files
+/*.sh
+!/build.sh
+/scripts/
+/refs/
+/tools/
+/src/*
+!/src/*.c
+/module/system/bin/RRS_Daemon
+
+# Editors / OS
+.DS_Store
+.idea/
+.vscode/
+*.log

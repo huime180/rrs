@@ -1,0 +1,2161 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light" data-accent="purple">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="color-scheme" content="light dark">
+<title>全局/动态高刷</title>
+<style>
+  :root{--blurpx:18px;
+  --accent:#6750A4; --accent-2:#8B6FD4;
+  --text:#1B1B1F; --muted:#5D5D66; --faint:#8A8A94;
+  --glass:rgba(255,255,255,.56); --glass-2:rgba(255,255,255,.38); --glass-bar:rgba(255,255,255,.56);
+  --glass-line:rgba(255,255,255,.72); --shadow:0 8px 28px rgba(31,38,63,.10);
+  --chip:rgba(255,255,255,.6); --ok:#2E7D32; --err:#C62828;
+  --track:rgba(120,120,140,.35); --knob:#fff; --glass-solid:rgba(255,255,255,.88);
+}
+html[data-theme="dark"]{
+  --accent:#C5B0FF; --accent-2:#9E86E8;
+  --text:#F1EFF7; --muted:#C3C0CC; --faint:#9B98A6;
+  --glass:rgba(30,30,38,.55); --glass-2:rgba(30,30,38,.34); --glass-bar:rgba(30,30,38,.55);
+  --glass-line:rgba(255,255,255,.14); --shadow:0 8px 28px rgba(0,0,0,.38);
+  --chip:rgba(255,255,255,.10); --ok:#9CD67F; --err:#FF8A80;
+  --track:rgba(200,200,220,.30); --knob:#fff; --glass-solid:rgba(30,30,38,.92);
+}
+html[data-accent="blue"]{--accent:#3B6FE0;--accent-2:#6FA0F5}
+html[data-accent="green"]{--accent:#3D7A3A;--accent-2:#6FAF6A}
+html[data-accent="orange"]{--accent:#C06A1E;--accent-2:#E59A54}
+html[data-accent="pink"]{--accent:#B85C7A;--accent-2:#D98AA3}
+html[data-accent="blue"][data-theme="dark"]{--accent:#A8C4FF;--accent-2:#7C9FF0}
+html[data-accent="green"][data-theme="dark"]{--accent:#A8D8A2;--accent-2:#84BC7E}
+html[data-accent="orange"][data-theme="dark"]{--accent:#FFC08A;--accent-2:#E5A063}
+html[data-accent="pink"][data-theme="dark"]{--accent:#FFB0C8;--accent-2:#E08AA5}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;padding:0}
+body{min-height:100vh;color:var(--text);background:#eef1f8;
+  font-family:-apple-system,"PingFang SC","Noto Sans CJK SC","Segoe UI",Roboto,sans-serif;
+  font-size:15px;line-height:1.45;overflow-x:hidden}
+.bg{position:fixed;inset:0;z-index:-1;transition:opacity .3s}
+body.wall-on .bg{opacity:0}
+html[data-theme="light"] .bg{background:
+  radial-gradient(1100px 760px at 8% -8%, #cfe0ff 0%, rgba(207,224,255,0) 62%),
+  radial-gradient(900px 720px at 108% 6%, #ffd7e3 0%, rgba(255,215,227,0) 58%),
+  radial-gradient(1000px 900px at 45% 112%, #d6f2dd 0%, rgba(214,242,221,0) 62%),
+  linear-gradient(180deg,#f5f2fb 0%,#eef3fb 55%,#f8f0f4 100%)}
+html[data-theme="dark"] .bg{background:
+  radial-gradient(1100px 760px at 8% -8%, #24304d 0%, rgba(36,48,77,0) 62%),
+  radial-gradient(900px 720px at 108% 6%, #3a2438 0%, rgba(58,36,56,0) 58%),
+  radial-gradient(1000px 900px at 45% 112%, #1f3830 0%, rgba(31,56,48,0) 62%),
+  linear-gradient(180deg,#15161c 0%,#14161d 55%,#1a151b 100%)}
+.wrap{max-width:860px;margin:0 auto;padding:calc(18px + env(safe-area-inset-top)) 16px 118px}
+.head{display:flex;align-items:flex-start;gap:12px;margin:8px 2px 16px}
+.head h1{font-size:28px;line-height:1.2;font-weight:650;margin:0;letter-spacing:.2px}
+.head .sub{font-size:12.5px;color:var(--muted);margin-top:6px}
+.head .iconbtn{margin-left:auto;width:42px;height:42px;border-radius:50%;border:1px solid var(--glass-line);
+  background:var(--glass);backdrop-filter:blur(var(--blurpx)) saturate(1.2);-webkit-backdrop-filter:blur(var(--blurpx)) saturate(1.2);
+  color:var(--text);font-size:18px;display:flex;align-items:center;justify-content:center;cursor:pointer;flex:none}
+.section{font-size:13px;font-weight:600;color:var(--muted);margin:20px 6px 9px;letter-spacing:.3px}
+.card{background:var(--glass);border:1px solid var(--glass-line);border-radius:26px;padding:16px;
+  box-shadow:var(--shadow);backdrop-filter:blur(var(--blurpx)) saturate(1.25);-webkit-backdrop-filter:blur(var(--blurpx)) saturate(1.25);
+  margin-bottom:12px}
+.card-head{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+.card-head .t{font-size:17px;font-weight:650}
+.card-head .s{font-size:12px;color:var(--muted);margin-top:2px}
+.chip{display:inline-flex;align-items:center;gap:6px;background:var(--chip);border:1px solid var(--glass-line);
+  border-radius:999px;padding:6px 12px;font-size:12px;font-weight:600;color:var(--text)}
+.dot{width:8px;height:8px;border-radius:50%;display:inline-block}
+.dot.on{background:var(--ok)} .dot.off{background:var(--err)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px 18px}
+.kv .k{font-size:12px;color:var(--faint)}
+.kv .v{font-size:16px;font-weight:650;margin-top:3px;word-break:break-all}
+.kv .v.small{font-size:13.5px;font-weight:600}
+.hr{height:1px;background:var(--glass-line);margin:14px 0}
+.row{display:flex;align-items:center;gap:12px;padding:13px 2px;border-bottom:1px solid var(--glass-line)}
+.row:last-child{border-bottom:none}
+.row .ic{width:30px;height:30px;flex:none;border-radius:10px;background:var(--glass-2);
+  display:flex;align-items:center;justify-content:center;color:var(--accent);font-size:15px}
+.row .txt{flex:1;min-width:0}
+.row .lbl{font-size:15px;font-weight:550}
+.row .hint{font-size:12px;color:var(--muted);margin-top:2px}
+.row .chev{color:var(--faint);font-size:18px;flex:none}
+.row.tap{cursor:pointer;border-radius:14px}
+.row.tap:active{background:var(--glass-2)}
+.btn{display:inline-flex;align-items:center;justify-content:center;border:none;border-radius:999px;
+  padding:11px 20px;font-size:14px;font-weight:650;background:var(--glass-2);color:var(--text);cursor:pointer;
+  border:1px solid var(--glass-line)}
+.btn:active{opacity:.8}
+.btn.primary{background:var(--accent);color:#fff;border-color:transparent}
+html[data-theme="dark"] .btn.primary{color:#221B33}
+.btn.small{padding:8px 14px;font-size:13px}
+.btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+.field{background:var(--glass-2);border:1px solid transparent;border-radius:16px;padding:10px 13px;margin:2px 0 10px}
+.field label{font-size:11.5px;color:var(--faint);display:block;margin-bottom:3px}
+.field input,.field select{background:transparent;border:none;outline:none;color:var(--text);
+  font-size:15px;padding:2px 0;width:100%;font-family:inherit}
+.field select{appearance:none;-webkit-appearance:none}
+.field:focus-within{border-color:var(--accent)}
+.seg{display:flex;background:var(--glass-2);border-radius:999px;padding:4px;gap:2px;border:1px solid var(--glass-line)}
+.seg button{flex:1;border:none;background:transparent;color:var(--muted);border-radius:999px;
+  padding:9px 4px;font-size:13px;font-weight:600;cursor:pointer}
+.seg button.on{background:var(--accent);color:#fff}
+html[data-theme="dark"] .seg button.on{color:#221B33}
+.swatches{display:flex;gap:14px;padding:6px 2px 2px}
+.sw{width:32px;height:32px;border-radius:50%;border:2px solid transparent;cursor:pointer;padding:0}
+.sw.on{border-color:var(--text);box-shadow:0 0 0 3px rgba(255,255,255,.45)}
+.sw.dynamic{background:conic-gradient(from 210deg,#ff7b9c,#ffc46b,#8be08b,#6bc8ff,#b18bff,#ff7b9c)}
+.sw.purple{background:#6750A4}.sw.blue{background:#3B6FE0}.sw.green{background:#3D7A3A}
+.sw.orange{background:#C06A1E}.sw.pink{background:#B85C7A}
+.switch{position:relative;width:50px;height:30px;flex:none}
+.switch input{display:none}
+.switch .track{position:absolute;inset:0;border-radius:15px;background:var(--track);transition:.18s}
+.switch .knob{position:absolute;top:3px;left:3px;width:24px;height:24px;border-radius:50%;
+  background:var(--knob);box-shadow:0 1px 3px rgba(0,0,0,.28);transition:.18s}
+.switch input:checked + .track{background:var(--accent)}
+.switch input:checked + .track + .knob{left:23px}
+.searchbox{display:flex;align-items:center;gap:8px;background:var(--glass-2);border:1px solid var(--glass-line);
+  border-radius:999px;padding:9px 14px;margin-bottom:10px}
+.searchbox input{border:none;background:transparent;outline:none;color:var(--text);font-size:14px;width:100%}
+.appitem{display:flex;align-items:center;gap:12px;padding:10px 2px;border-bottom:1px solid var(--glass-line);cursor:pointer}
+.appitem:last-child{border-bottom:none}
+.appitem:active{background:var(--glass-2)}
+.avatar{width:42px;height:42px;border-radius:13px;flex:none;display:flex;align-items:center;justify-content:center;
+  color:#fff;font-size:18px;font-weight:700;box-shadow:inset 0 0 0 1px rgba(255,255,255,.25);
+  object-fit:cover;background:var(--glass-2);overflow:hidden}
+img.avatar{display:block;background:var(--glass-2)}
+.avatar.big{width:46px;height:46px;border-radius:14px;font-size:19px}
+.appitem .txt{flex:1;min-width:0}
+.appitem .nm{font-size:14.5px;font-weight:550;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.appitem .pk{font-size:11.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.appitem .tagit{flex:none;font-size:11.5px;font-weight:650;border-radius:999px;padding:5px 10px;
+  background:var(--chip);border:1px solid var(--glass-line);color:var(--accent)}
+.appitem .tagit.game{color:var(--text)}
+.opt{display:flex;align-items:center;gap:10px;padding:12px 6px;border-bottom:1px solid var(--glass-line);cursor:pointer;font-size:14.5px}
+.opt:last-child{border-bottom:none}
+.opt .o-ic{width:26px;text-align:center;color:var(--accent);font-size:15px}
+.opt .o-cur{margin-left:auto;color:var(--accent);font-size:12.5px;font-weight:600;
+  background:rgba(127,127,127,.14);padding:2px 8px;border-radius:10px;white-space:nowrap}
+.note{font-size:12px;color:var(--muted);margin-top:10px;line-height:1.55;word-break:break-all}
+.tabbar{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(14px + env(safe-area-inset-bottom));
+  display:flex;gap:6px;padding:7px;border-radius:999px;background:var(--glass-bar);border:1px solid var(--glass-line);
+  box-shadow:var(--shadow);backdrop-filter:blur(18px) saturate(1.3);-webkit-backdrop-filter:blur(18px) saturate(1.3);
+  z-index:30;width:min(320px,88vw)}
+html[data-liquid="1"] .tabbar{border-color:rgba(255,255,255,.55);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.55),var(--shadow)}
+html[data-theme="dark"][data-liquid="1"] .tabbar{border-color:rgba(255,255,255,.18);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.18),var(--shadow)}
+.tabbar button{flex:1;border:none;background:transparent;border-radius:999px;padding:9px 4px;cursor:pointer;
+  color:var(--muted);display:flex;flex-direction:column;align-items:center;gap:3px;font-size:11.5px;font-weight:600}
+.tabbar button svg{width:22px;height:22px;display:block}
+.tabbar button.on{background:var(--accent);color:#fff}
+html[data-theme="dark"] .tabbar button.on{color:#221B33}
+.view{display:none}
+.view.on{display:block}
+html[data-blur="0"] .card{backdrop-filter:none;-webkit-backdrop-filter:none;background:var(--glass-solid)}
+html[data-blur="0"] #toast,html[data-blur="0"] .head .iconbtn{backdrop-filter:none;-webkit-backdrop-filter:none;background:var(--glass-solid)}
+html[data-float="0"] .tabbar{left:0;transform:none;bottom:0;width:100%;max-width:none;border-radius:22px 22px 0 0;padding:10px 8px calc(10px + env(safe-area-inset-bottom))}
+#toast{position:fixed;left:50%;bottom:calc(96px + env(safe-area-inset-bottom));transform:translateX(-50%) translateY(14px);
+  background:var(--glass);border:1px solid var(--glass-line);color:var(--text);padding:11px 18px;border-radius:14px;
+  font-size:13.5px;opacity:0;transition:.22s;pointer-events:none;z-index:99;max-width:86vw;text-align:center;
+  backdrop-filter:blur(var(--blurpx));-webkit-backdrop-filter:blur(var(--blurpx));box-shadow:var(--shadow)}
+#toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+#modal{position:fixed;inset:0;background:rgba(10,10,16,.42);display:none;z-index:50;align-items:center;justify-content:center;padding:18px}
+#modal.show{display:flex}
+#modal .box{background:var(--glass);border:1px solid var(--glass-line);border-radius:26px;width:100%;max-width:720px;
+  max-height:82vh;display:flex;flex-direction:column;overflow:hidden;backdrop-filter:blur(var(--blurpx));-webkit-backdrop-filter:blur(var(--blurpx))}
+#wall{position:fixed;inset:0;z-index:-2;background-size:cover;background-position:center;
+  filter:blur(2px);transform:scale(1.04);opacity:0;transition:opacity .3s,filter .2s}
+body.wall-on #wall{opacity:.88}
+html[data-theme="dark"] body.wall-on #wall{opacity:.62}
+#modal .hd{display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid var(--glass-line);font-weight:650}
+#modal pre{margin:0;padding:14px 18px;overflow:auto;font-size:12.5px;color:var(--text);line-height:1.65;
+  font-family:ui-monospace,Roboto Mono,Menlo,Consolas,monospace;
+  white-space:pre-wrap;word-break:break-all;font-family:ui-monospace,Menlo,monospace}
+.dlg-head{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+#dlgTitle{font-size:15.5px;font-weight:650}
+#dlgSub{font-size:11.5px;color:var(--muted);margin-top:1px;word-break:break-all}
+#dlgBox .opt{padding:10px 4px;font-size:14px}
+.rategrid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;padding:4px 0 8px}
+.rategrid button{padding:9px 0;border-radius:12px;border:1px solid var(--glass-line);background:var(--glass-2);
+  color:var(--text);font-size:13.5px;font-weight:600;cursor:pointer}
+.rategrid button.on{background:var(--accent);color:#fff}
+.ratecap{font-size:11.5px;color:var(--muted);padding:2px 0 8px}
+.loading{opacity:.55;pointer-events:none}
+.appitem,.appitem *{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+.appitem.sel{border-radius:14px;padding-left:6px;padding-right:6px}
+.appitem .pick{width:20px;height:20px;border-radius:50%;border:2px solid var(--glass-line);flex:none;transition:.15s}
+.appitem.picked .pick{background:var(--accent);border-color:var(--accent);box-shadow:0 0 0 3px rgba(0,0,0,.06)}
+@media (max-width:380px){ .grid2{grid-template-columns:1fr} .head h1{font-size:24px} }
+</style>
+</head>
+<body class="tab-home">
+<div id="wall"></div>
+<div class="bg"></div>
+<div class="wrap">
+  <div class="head">
+    <div>
+      <h1 id="pageTitle">全局/动态高刷</h1>
+    </div>
+    <button class="iconbtn" id="btnTheme" title="切换主题">◐</button>
+  </div>
+
+  <!-- 首页 -->
+  <div class="view on" id="viewHome">
+    <div class="section">设备诊断</div>
+    <div class="card" id="statusCard">
+      <div class="card-head">
+        <div><div class="t" id="runText">读取中…</div><div class="s" id="statusTag">—</div></div>
+        <span class="chip" id="curFps" style="margin-left:auto">- Hz</span>
+      </div>
+      <div class="grid2">
+        <div class="kv"><div class="k">机型</div><div class="v small" id="devModel">-</div></div>
+        <div class="kv"><div class="k">模块版本</div><div class="v small" id="ver">-</div></div>
+        <div class="kv"><div class="k">模块档位</div><div class="v small" id="tiers">-</div></div>
+        <div class="kv"><div class="k">息屏刷新率</div><div class="v small" id="aodVal">-</div></div>
+        <div class="kv"><div class="k">最高刷新率</div><div class="v small" id="panelCap">-</div></div>
+        <div class="kv"><div class="k">最高采样率</div><div class="v small" id="thpMax">-</div></div>
+        <div class="kv"><div class="k">日常采样率</div><div class="v small" id="thpN">-</div></div>
+        <div class="kv"><div class="k">游戏采样率</div><div class="v small" id="thpG">-</div></div>
+      </div>
+      <div class="hr"></div>
+      <div class="row tap" id="rowApps"><div class="ic">▦</div><div class="txt"><div class="lbl">刷新率控制</div><div class="hint">按应用/游戏单独设置</div></div><div class="chev">›</div></div>
+      <div class="row tap" id="rowLog"><div class="ic">≡</div><div class="txt"><div class="lbl">查看日志</div><div class="hint">最近 200 行 rrs.log</div></div><div class="chev">›</div></div>
+    </div>
+
+    <div class="section" id="sysDefSection" style="display:none">系统默认策略</div>
+    <div class="card" id="sysDefCard" style="display:none">
+      <div class="note" id="sysDefInfo">读取中…</div>
+      <div class="btns"><button class="btn primary" id="btnSysDefault">还原系统默认刷新率策略</button></div>
+      <div class="note" style="margin-top:8px">数据来自设备 device_features 与 powerkeeper 默认清单；还原后模块停止干预，交还系统调度。</div>
+    </div>
+  </div>
+
+  <!-- 工具 -->
+  <div class="view" id="viewTools">
+    <div class="card">
+      <div class="searchbox"><span style="color:var(--faint)">⌕</span><input id="appSearch" placeholder="搜索应用名或包名"></div>
+      <div class="seg" id="catSeg">
+        <button data-cat="all" class="on">全部</button>
+        <button data-cat="app">应用</button>
+        <button data-cat="game">游戏</button>
+      </div>
+      <div class="row" style="border-bottom:none;padding-top:2px">
+        <div class="note" id="appCount" style="margin:0">读取应用列表…</div>
+        <button class="btn small" id="btnSel" style="margin-left:auto">多选</button>
+      </div>
+      <div id="appList"></div>
+      <div class="note">点应用设置刷新率；长按进入多选（勾选多个后可批量设刷新率 / 加入游戏 / 取消游戏）。游戏分类包含 Game Turbo 自动识别的应用。</div>
+    </div>
+  </div>
+
+  <!-- 设置 -->
+  <div class="view" id="viewSettings">
+    <div class="section">全局刷新率</div>
+    <div class="card">
+      <div class="ratecap" id="globalTierCap" style="padding:0 0 6px">档位（单选 = 固定，多选 = 动态）默认：读取中…</div>
+      <div class="rategrid" id="globalRates"></div>
+      <div class="field"><label>动态模式每段停留（毫秒）</label><input type="text" id="cfg_delays" placeholder="1000,2000"></div>
+      <div class="field"><label>最高刷新率（Hz，0 = 本机最高）</label><input type="number" id="cfg_cap" placeholder="0"></div>
+            <div class="row tap" id="rowAnimBoost"><div class="txt"><div class="lbl">系统动画加速</div></div>
+        <div class="v small" id="animBoostVal" style="margin:0">本机最高刷新率</div>
+        <div class="chev">›</div></div>
+<div class="row" id="rowBrightLow"><div class="txt"><div class="lbl">低亮度阈值</div><div class="hint">亮度 ≤ 阈值时限制最高刷新率（0－100%，相对系统亮度滑块，0 = 关闭）</div></div>
+        <div style="display:flex;align-items:center;gap:10px;flex:none;width:172px">
+          <input type="range" id="cfg_bright_low" min="0" max="100" step="1" style="flex:1;accent-color:var(--accent)">
+          <span id="brightLowVal" style="width:42px;text-align:right;font-size:12.5px;color:var(--muted)">8%</span>
+        </div></div>
+      <div class="row tap" id="rowBrightCap"><div class="txt"><div class="lbl">低亮度最高刷新率</div></div>
+        <div class="v small" id="brightCapVal" style="margin:0">自动</div>
+        <div class="chev">›</div></div>
+      <div class="row tap" id="rowOffFps">
+        <div class="txt"><div class="lbl">息屏刷新率</div><div class="hint">切换后重启生效</div></div>
+        <div class="v small" id="cfgOffVal" style="margin:0">-</div>
+        <div class="chev">›</div>
+      </div>
+      <div class="row tap" id="rowGameFps">
+        <div class="txt"><div class="lbl">默认游戏刷新率</div></div>
+        <div class="v small" id="cfgGameVal" style="margin:0">-</div>
+        <div class="chev">›</div>
+      </div>
+      <div class="row"><div class="txt"><div class="lbl">日志</div></div>
+        <label class="switch"><input type="checkbox" id="cfg_log"><span class="track"></span><span class="knob"></span></label></div>
+      <div class="btns"><button class="btn primary" id="btnSaveCfg">保存配置</button><button class="btn" id="btnResetCfg">恢复默认</button></div>
+      <div class="btns"><button class="btn" id="btnImportSys">导入系统默认 AppList</button></div>
+      <div class="note" style="margin-top:8px">以上项修改后会自动保存（无需手动点保存）；点「保存配置」也会立即写入。</div>
+    </div>
+
+    <div class="section">触控采样率</div>
+    <div class="card">
+      <div class="row tap" id="rowThpN">
+        <div class="txt"><div class="lbl">日常触控采样率</div><div class="hint">thp_report_rate_normal</div></div>
+        <div class="v small" id="thpNVal" style="margin:0">off</div>
+        <div class="chev">›</div>
+      </div>
+      <div class="row tap" id="rowThpG">
+        <div class="txt"><div class="lbl">游戏触控采样率</div><div class="hint">thp_report_rate_game</div></div>
+        <div class="v small" id="thpGVal" style="margin:0">off</div>
+        <div class="chev">›</div>
+      </div>
+      <div class="row tap" id="rowThp">
+        <div class="txt"><div class="lbl">查看 thp 配置</div><div class="hint">读取模块内 odm/firmware 的 report_rate（上方可改）</div></div>
+        <div class="chev">›</div>
+      </div>    </div>
+
+    <div class="section">外观</div>
+    <div class="card">
+      <div class="row"><div class="txt"><div class="lbl">模式</div></div>
+        <div class="seg" id="themeSeg" style="flex:0 0 186px">
+          <button data-theme="auto">跟随系统</button>
+          <button data-theme="light">浅色</button>
+          <button data-theme="dark">深色</button>
+        </div>
+      </div>
+      <div class="row"><div class="txt"><div class="lbl">启用 Monet 颜色</div></div>
+        <label class="switch"><input type="checkbox" id="cfg_monet"><span class="track"></span><span class="knob"></span></label></div>
+      <div class="row"><div class="txt"><div class="lbl">强调色</div></div>
+        <div class="swatches" id="accents" style="padding:0">
+          <button class="sw dynamic" data-accent="dynamic" title="动态取色（默认，取自壁纸）"></button>
+          <button class="sw purple" data-accent="purple"></button>
+          <button class="sw blue" data-accent="blue"></button>
+          <button class="sw green" data-accent="green"></button>
+          <button class="sw orange" data-accent="orange"></button>
+          <button class="sw pink" data-accent="pink"></button>
+        </div>
+      </div>
+      <div class="row"><div class="txt"><div class="lbl">色彩风格</div></div>
+        <select id="cfg_style" style="width:auto;background:transparent;border:none;color:var(--text);font-size:14px">
+          <option>TonalSpot</option><option>Vibrant</option><option>Neutral</option><option>Expressive</option><option>Rainbow</option>
+        </select></div>
+      <div class="row"><div class="txt"><div class="lbl">色彩标准</div></div>
+        <select id="cfg_spec" style="width:auto;background:transparent;border:none;color:var(--text);font-size:14px">
+          <option>SPEC_2025</option><option>SPEC_2021</option>
+        </select></div>
+      <div class="row"><div class="txt"><div class="lbl">界面模糊</div></div>
+        <div style="display:flex;align-items:center;gap:10px;flex:none;width:172px">
+          <input type="range" id="cfg_blur" min="0" max="100" step="5" style="flex:1;accent-color:var(--accent)">
+          <span id="blurVal" style="width:42px;text-align:right;font-size:12.5px;color:var(--muted)">100%</span>
+        </div></div>
+      <div class="row"><div class="txt"><div class="lbl">悬浮底栏</div></div>
+        <label class="switch"><input type="checkbox" id="cfg_float"><span class="track"></span><span class="knob"></span></label></div>
+      <div class="row"><div class="txt"><div class="lbl">液态玻璃</div><div class="hint">仅悬浮底栏开启时生效</div></div>
+        <label class="switch"><input type="checkbox" id="cfg_liquid"><span class="track"></span><span class="knob"></span></label></div>
+      <div class="row"><div class="txt"><div class="lbl">界面不透明度</div><div class="hint">卡片的透明程度</div></div>
+        <div style="display:flex;align-items:center;gap:10px;flex:none;width:172px">
+          <input type="range" id="cfg_opacity" min="0" max="100" step="5" style="flex:1;accent-color:var(--accent)">
+          <span id="opacityVal" style="width:42px;text-align:right;font-size:12.5px;color:var(--muted)">100%</span>
+        </div></div>
+    </div>
+
+    <div class="section">壁纸</div>
+    <div class="card">
+      <div class="row"><div class="txt"><div class="lbl">界面背景壁纸</div></div>
+        <label class="switch"><input type="checkbox" id="cfg_wall"><span class="track"></span><span class="knob"></span></label></div>
+      <div class="row"><div class="txt"><div class="lbl">壁纸模糊</div></div>
+        <div style="display:flex;align-items:center;gap:10px;flex:none;width:172px">
+          <input type="range" id="cfg_wallblur" min="0" max="24" step="1" style="flex:1;accent-color:var(--accent)">
+          <span id="wallBlurVal" style="width:42px;text-align:right;font-size:12.5px;color:var(--muted)">2px</span>
+        </div></div>
+      <div class="row tap" id="rowWallPick"><div class="txt"><div class="lbl">更换壁纸</div></div><div class="chev">›</div></div>
+      <div class="row tap" id="rowWallReset"><div class="txt"><div class="lbl">恢复默认壁纸</div></div><div class="chev">›</div></div>
+      <input type="file" id="wallFile" accept="image/*" style="display:none">
+    </div>
+
+    <div class="section">交互</div>
+    <div class="card">
+      <div class="row tap" id="rowScale"><div class="txt"><div class="lbl">界面缩放</div></div>
+        <div class="v small" id="scaleVal" style="margin:0">100%</div>
+        <div class="chev">›</div></div>
+    </div>
+  </div>
+
+
+<nav class="tabbar">
+  <button data-tab="home" class="on">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 10.5 12 4l8 6.5V20a1 1 0 0 1-1 1h-5v-6H10v6H5a1 1 0 0 1-1-1z"/></svg>
+    首页
+  </button>
+  <button data-tab="tools">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2.2"/><circle cx="8" cy="17" r="2.2"/></svg>
+    控制
+  </button>
+  <button data-tab="settings">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3.2"/><path d="M19 12a7 7 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 0 0-2-1.2L14 3h-4l-.5 2.6a7 7 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6a7 7 0 0 0 0 2.4l-2 1.6 2 3.4 2.4-1a7 7 0 0 0 2 1.2L10 21h4l.5-2.6a7 7 0 0 0 2-1.2l2.4 1 2-3.4-2-1.6c.1-.4.1-.8.1-1.2z"/></svg>
+    设置
+  </button>
+</nav>
+
+<div id="toast"></div>
+<div id="modal"><div class="box">
+  <div class="hd"><span id="mTitle">daemon 日志</span>
+    <div style="display:flex;gap:8px">
+      <button class="btn small" id="mDel">删除</button>
+      <button class="btn small" id="mClose">关闭</button>
+    </div>
+  </div>
+  <pre id="mBody">加载中…</pre>
+</div></div>
+
+<div id="dlg" style="position:fixed;inset:0;background:rgba(10,10,16,.42);display:none;z-index:60;align-items:center;justify-content:center;padding:18px">
+  <div id="dlgBox" style="background:var(--glass);border:1px solid var(--glass-line);border-radius:24px;width:100%;max-width:430px;padding:16px;backdrop-filter:blur(var(--blurpx));-webkit-backdrop-filter:blur(var(--blurpx))">
+    <div class="dlg-head">
+      <img class="avatar big" id="dlgIcon" alt="" draggable="false">
+      <div style="min-width:0">
+        <div id="dlgTitle">应用</div>
+        <div id="dlgSub"></div>
+      </div>
+      <span id="dlgLockWrap" style="display:none;margin-left:auto;align-items:center;gap:6px">
+        <span style="font-size:14px;color:var(--text)">锁定</span>
+        <label class="switch"><input type="checkbox" id="dlgBrightLock"><span class="track"></span><span class="knob"></span></label>
+      </span>
+    </div>
+    <div id="dlgOpts"></div>
+    <div id="dlgRates" style="display:none"></div>
+    <div class="btns" style="justify-content:flex-end"><button class="btn small" id="dlgCancel">取消</button></div>
+  </div>
+</div>
+
+<script>
+"use strict";
+var MOD = "/data/adb/modules/RRS";
+var BIN = MOD + "/system/bin/RRS_Daemon";
+var CFG = "/data/adb/RRS/config";
+var GL  = "/data/adb/RRS/AppList";      /* 手动列表；自动游戏由 daemon 写 AutoGames */
+
+var cbSeq = 0;
+function shq(s){ return "'" + String(s).replace(/'/g, "'\\''") + "'"; }
+function b64(str){ return btoa(unescape(encodeURIComponent(String(str)))); }
+function ksuOk(){ try { return (typeof ksu !== "undefined") && ksu && typeof ksu.exec === "function"; } catch(e){ return false; } }
+function exec(cmd){
+  return new Promise(function(resolve){
+    if (!ksuOk()){ resolve({errno:-1, stdout:"", stderr:"KernelSU WebUI 桥不可用"}); return; }
+    var done = false;
+    function finish(errno, stdout, stderr){
+      if (done) return; done = true;
+      resolve({errno:errno, stdout:String(stdout == null ? "" : stdout), stderr:String(stderr == null ? "" : stderr)});
+    }
+    try {
+      var name = "__ksucb_" + Date.now() + "_" + (cbSeq++);
+      window[name] = function(errno, stdout, stderr){ delete window[name]; finish(errno, stdout, stderr); };
+      var ret = ksu.exec(cmd, "{}", name);
+      if (!done && typeof ret === "string") finish(0, ret, "");
+      setTimeout(function(){ finish(-1, "", "执行超时"); }, 20000);
+    } catch(e1){
+      try { var r2 = ksu.exec(cmd); finish(0, String(r2 == null ? "" : r2), ""); }
+      catch(e2){ finish(-1, "", String(e2)); }
+    }
+  });
+}
+function toast(msg){
+  var t = document.getElementById("toast");
+  t.textContent = msg; t.className = "show";
+  clearTimeout(t._tm); t._tm = setTimeout(function(){ t.className = ""; }, 2200);
+  /* 只用网页 toast，不调 KernelSU 原生 toast */
+}
+function $(id){ return document.getElementById(id); }
+
+/* ---------- 主题（webroot/config.json） ---------- */
+var MOD_CFG = "/data/adb/RRS/ui.json";                 /* 界面配置：重装模块不丢 */
+var MOD_CFG_OLD = MOD + "/webroot/config.json";          /* 旧位置，仅用于首次迁移 */
+var uiCfg = { theme:"auto", monet:true, accent:"dynamic", style:"TonalSpot", spec:"SPEC_2025", blur:100, floatBar:true, liquid:false, wall:false, scale:100, opacity:100, wallBlur:2 };
+var wallHue = 262;
+function sampleWallHue(){
+  var data = localStorage.getItem("rrs_wall") || "";
+  if (!data || !window.Image) return;
+  var img = new Image();
+  img.onload = function(){
+    try {
+      var cv = document.createElement("canvas");
+      cv.width = 24; cv.height = 24;
+      var g2 = cv.getContext("2d");
+      g2.drawImage(img, 0, 0, 24, 24);
+      var d = g2.getImageData(0, 0, 24, 24).data;
+      var bins = [], i, k;
+      for (k = 0; k < 36; k++) bins.push(0);
+      for (i = 0; i < d.length; i += 4){
+        var r = d[i] / 255, g = d[i+1] / 255, b = d[i+2] / 255;
+        var mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+        var sat = mx > 0 ? (mx - mn) / mx : 0;
+        if (sat < 0.18 || mx < 0.10) continue;      /* 跳过灰/黑，避免“永远是单色” */
+        var h = 0;
+        if (mx !== mn){
+          if (mx === r) h = ((g - b) / (mx - mn)) % 6;
+          else if (mx === g) h = (b - r) / (mx - mn) + 2;
+          else h = (r - g) / (mx - mn) + 4;
+          h *= 60; if (h < 0) h += 360;
+        }
+        bins[Math.floor(h / 10) % 36] += sat * sat * (0.35 + 0.65 * mx);
+      }
+      var sm = [], total = 0;
+      for (k = 0; k < 36; k++){
+        var v = bins[(k + 35) % 36] * 0.25 + bins[k] * 0.5 + bins[(k + 1) % 36] * 0.25;
+        sm.push(v); total += v;
+      }
+      if (total > 0){
+        var bi = 0;
+        for (k = 1; k < 36; k++) if (sm[k] > sm[bi]) bi = k;
+        wallHue = Math.round(bi * 10 + 5) % 360;
+        applyTheme();
+      }
+    } catch(e){}
+  };
+  img.src = data;
+}
+var ACCENT_HUES = { purple:262, blue:221, green:122, orange:28, pink:340 };
+var STYLES = {
+  TonalSpot:{s:42,h:0}, Vibrant:{s:78,h:0}, Neutral:{s:8,h:0},
+  Expressive:{s:66,h:24}, Rainbow:{s:72,h:74}
+};
+function mergeUiCfg(text){
+  try {
+    var o = JSON.parse(text || "{}");
+    var n = 0;
+    Object.keys(uiCfg).forEach(function(k){ if (o[k] !== undefined) { uiCfg[k] = o[k]; n++; } });
+    return n > 0;
+  } catch(e){ return false; }
+}
+function loadUiCfg(){
+  return exec("cat " + shq(MOD_CFG) + " 2>/dev/null").then(function(r){
+    if (mergeUiCfg(r.stdout || "")) return;
+    /* 首次升级：从模块目录里的旧位置迁移一份 */
+    return exec("cat " + shq(MOD_CFG_OLD) + " 2>/dev/null").then(function(r2){
+      if (mergeUiCfg(r2.stdout || "")) saveUiCfg();
+    });
+  });
+}
+function saveUiCfg(){
+  return exec("mkdir -p /data/adb/RRS; echo " + b64(JSON.stringify(uiCfg, null, 2)) +
+    " | base64 -d > " + shq(MOD_CFG) + " && chmod 644 " + shq(MOD_CFG));
+}
+function applyTheme(){
+  var dark = uiCfg.theme === "dark" || (uiCfg.theme === "auto" && window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
+  var root = document.documentElement;
+  root.dataset.theme = dark ? "dark" : "light";
+  var bl = (typeof uiCfg.blur === "boolean") ? (uiCfg.blur ? 100 : 0) : (+uiCfg.blur || 0);
+  root.dataset.blur = bl > 0 ? "1" : "0";
+  root.dataset.liquid = uiCfg.liquid ? "1" : "0";
+  root.style.setProperty("--blurpx", (bl / 100 * 24).toFixed(1) + "px");
+  if ($("blurVal")) $("blurVal").textContent = Math.round(bl) + "%";
+  root.dataset["float"] = uiCfg.floatBar ? "1" : "0";
+  root.dataset.liquid = uiCfg.liquid ? "1" : "0";
+  root.style.zoom = (uiCfg.scale || 100) / 100;
+  if ($("cfg_liquid")) $("cfg_liquid").checked = uiCfg.liquid;
+  if ($("cfg_wall")) $("cfg_wall").checked = uiCfg.wall;
+  if ($("scaleVal")) $("scaleVal").textContent = (uiCfg.scale || 100) + "%";
+  applyOpacity();
+  applyWall();
+  var st = STYLES[uiCfg.style] || STYLES.TonalSpot;
+  var accentHue = uiCfg.accent === "dynamic" ? wallHue : ACCENT_HUES[uiCfg.accent];
+  var hue = uiCfg.monet ? (accentHue || 262) : 262;
+  var sat = uiCfg.monet ? st.s : 6;
+  if (uiCfg.spec === "SPEC_2021") sat = Math.max(0, sat - 8);
+  var l = (dark ? 78 : 42) + (uiCfg.spec === "SPEC_2025" ? (dark ? 3 : -3) : 0);
+  root.style.setProperty("--accent", "hsl(" + hue + " " + sat + "% " + l + "%)");
+  root.style.setProperty("--accent-2", "hsl(" + (hue + st.h) + " " + Math.min(100, sat + 8) + "% " + (dark ? Math.min(90, l + 8) : Math.min(72, l + 16)) + "%)");
+  document.querySelectorAll("#themeSeg button").forEach(function(b){ b.className = b.dataset.theme === uiCfg.theme ? "on" : ""; });
+  document.querySelectorAll("#accents .sw").forEach(function(b){
+    b.className = "sw " + b.dataset.accent + (b.dataset.accent === uiCfg.accent ? " on" : "");
+  });
+  if ($("cfg_monet")) $("cfg_monet").checked = uiCfg.monet;
+  if ($("cfg_blur")) $("cfg_blur").value = String(Math.round(typeof uiCfg.blur === "boolean" ? (uiCfg.blur ? 100 : 0) : uiCfg.blur));
+  if ($("cfg_float")) $("cfg_float").checked = uiCfg.floatBar;
+  if ($("cfg_style")) $("cfg_style").value = uiCfg.style;
+  if ($("cfg_spec")) $("cfg_spec").value = uiCfg.spec;
+}
+function applyOpacity(){
+  var root = document.documentElement, dark = root.dataset.theme === "dark";
+  var o = (uiCfg.opacity == null ? 100 : +uiCfg.opacity) / 100;
+  if (!isFinite(o)) o = 1;
+  o = Math.min(1, Math.max(0, o));
+  var a1 = dark ? 0.55 : 0.56;      /* 液态玻璃只作用于底栏，不再改卡片玻璃 */
+  var a2 = dark ? 0.34 : 0.38;
+  var solid = dark ? 0.92 : 0.88;
+  var st = root.style;
+  st.setProperty("--glass", "rgba(" + (dark ? "30,30,38" : "255,255,255") + "," + (a1 * o).toFixed(3) + ")");
+  st.setProperty("--glass-2", "rgba(" + (dark ? "30,30,38" : "255,255,255") + "," + (a2 * o).toFixed(3) + ")");
+  st.setProperty("--glass-solid", "rgba(" + (dark ? "30,30,38" : "255,255,255") + "," + (solid * o).toFixed(3) + ")");
+  st.setProperty("--chip", "rgba(255,255,255," + ((dark ? 0.10 : 0.60) * o).toFixed(3) + ")");
+  /* 底栏独立：不受模糊/不透明度影响，液态玻璃开启时用更透的“水膜”配色 */
+  st.setProperty("--glass-bar", uiCfg.liquid
+    ? (dark ? "rgba(30,30,38,.34)" : "rgba(255,255,255,.34)")
+    : (dark ? "rgba(30,30,38,.55)" : "rgba(255,255,255,.56)"));
+  if ($("cfg_opacity")) $("cfg_opacity").value = String(Math.round(o * 100));
+  if ($("opacityVal")) $("opacityVal").textContent = Math.round(o * 100) + "%";
+}
+function setTheme(t){ uiCfg.theme = t; applyTheme(); saveUiCfg(); }
+function cycleTheme(){
+  var order = ["auto","light","dark"];
+  var next = order[(order.indexOf(uiCfg.theme) + 1) % order.length];
+  setTheme(next);
+  toast(next === "auto" ? "跟随系统" : (next === "light" ? "浅色模式" : "深色模式"));
+}
+if (window.matchMedia){ try { window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", applyTheme); } catch(e){} }
+
+/* ---------- 配置 ---------- */
+function parseCfg(text){
+  var m = {};
+  text.split(/\r?\n/).forEach(function(l){
+    var t = l.trim();
+    if (!t || t.charAt(0) === "#") return;
+    var i = t.indexOf("=");
+    if (i <= 0) return;
+    m[t.slice(0, i).trim()] = t.slice(i + 1).trim();
+  });
+  return m;
+}
+function setCfgKey(lines, key, val){
+  var re = new RegExp("^\\s*" + key + "\\s*=");
+  var found = false;
+  for (var i = 0; i < lines.length; i++){ if (re.test(lines[i])){ lines[i] = key + "=" + val; found = true; break; } }
+  if (!found) lines.push(key + "=" + val);
+  return lines;
+}
+
+/* ---------- GameList ---------- */
+var glState = { header: [], entries: [], auto: "" };
+function parseGameList(text){
+  var lines = text.split(/\r?\n/), autoStart = -1, autoEnd = -1;
+  for (var i = 0; i < lines.length; i++){
+    var t = lines[i].trim();
+    if (t.indexOf("#auto") === 0){ autoStart = i; break; }
+    if (lines[i].indexOf("RRS_AUTO_GAMES") >= 0){ if (lines[i].indexOf(">>>") >= 0){ autoStart = i; } }
+  }
+  var header = [], entries = [], sect = -1;
+  for (var j = 0; j < lines.length; j++){
+    if (autoStart >= 0 && j >= autoStart && (autoEnd < 0 || j <= autoEnd)) continue;
+    var t = lines[j].trim();
+    if (!t) continue;
+    if (t.charAt(0) === "#"){
+      if (t.indexOf("应用") >= 0) sect = 0;
+      else if (t.indexOf("游戏") >= 0) sect = 1;
+      header.push(lines[j]);
+      continue;
+    }
+    var toks = t.split(/\s+/), pkg = toks[0];
+    if (pkg.indexOf(".") < 0) continue;
+    var fps = "", name = [], nogame = false, game = false, delays = "", rate = "";
+    for (var k = 1; k < toks.length; k++){
+      var tok = toks[k];
+      if (tok.indexOf("delays=") === 0) delays = tok.slice(7);
+      else if (tok.indexOf("rate=") === 0) rate = tok.slice(5);
+      else if (/^\d+(,\d+)*$/.test(tok)) fps = tok;
+      else if (/^(top|off)$/i.test(tok)) fps = tok.toLowerCase();
+      else if (/^nogame$/i.test(tok)) nogame = true;
+      else if (/^game$/i.test(tok)) game = true;
+      else name.push(tok);
+    }
+    var isGame = (sect === 1) || game || (sect < 0 && fps === "");
+    if (nogame) isGame = false;   /* 旧写法：nogame 视为“排除”，迁到应用段并标 game */
+    entries.push({ pkg: pkg, name: name.join(" "), fps: fps, delays: delays, rate: rate,
+                   nogame: nogame, game: isGame, wasGame: game || nogame });
+  }
+  var auto = autoStart >= 0 ? lines.slice(autoStart).join("\n").replace(/\s+$/, "") : "";
+  return { header: header, entries: entries, auto: auto };
+}
+function manualMap(){
+  var m = {};
+  glState.entries.forEach(function(e){ m[e.pkg] = e.fps || ""; });
+  return m;
+}
+function buildGameList(){
+  var apps = [], games = [];
+  glState.entries.forEach(function(e){
+    var l = e.pkg;
+    if (e.name) l += " " + e.name;
+    if (e.fps) l += " " + e.fps;
+    if (e.delays) l += " delays=" + e.delays;
+    if (e.rate) l += " rate=" + e.rate;
+    if (e.game){
+      games.push(l);
+    } else {
+      if (autoGames[e.pkg]) l += " game";   /* 自动识别但被排除：留在应用段，标 game */
+      apps.push(l);
+    }
+  });
+  var lines = [];
+  if (apps.length){ lines.push("# 应用（单独刷新率）"); lines = lines.concat(apps); }
+  if (games.length){ if (lines.length) lines.push(""); lines.push("# 游戏（本机识别 / 手动加入）"); lines = lines.concat(games); }
+  return lines.join("\n") + "\n";
+}
+
+/* ---------- 应用列表 ---------- */
+var allApps = [], autoGames = {}, appFilter = "all", appQuery = "", appsLoaded = false;
+var selMode = false, selSet = {}, lpGuard = 0;
+function selCount(){ return Object.keys(selSet).length; }
+function setSelMode(on){
+  selMode = !!on; selSet = {};
+  $("btnSel").textContent = on ? "取消多选" : "多选";
+  renderApps();
+}
+function togglePick(pkg, name){
+  if (selSet[pkg] !== undefined) delete selSet[pkg]; else selSet[pkg] = name || pkg;
+  renderApps();
+}
+function bulkEnsure(pkg, name){
+  var e = findEntry(pkg);
+  if (!e){ e = { pkg: pkg, name: name || "", fps: "", nogame: false }; glState.entries.push(e); }
+  return e;
+}
+function bulkApplyRate(fps){
+  var pkgs = Object.keys(selSet);
+  if (!pkgs.length){ toast("先选择应用"); return Promise.resolve(); }
+  pkgs.forEach(function(pkg){
+    var e = bulkEnsure(pkg, selSet[pkg]);
+    e.fps = String(fps);
+    if (!e.fps && !e.nogame && !autoGames[pkg]){
+      var i = glState.entries.indexOf(e);
+      if (i >= 0) glState.entries.splice(i, 1);
+    }
+  });
+  return saveGl().then(function(){
+    toast("已设置 " + pkgs.length + " 个应用");
+    setSelMode(false);
+    renderApps();
+  });
+}
+function bulkApplyGame(on){
+  var pkgs = Object.keys(selSet);
+  if (!pkgs.length){ toast("先选择应用"); return Promise.resolve(); }
+  pkgs.forEach(function(pkg){
+    if (on){
+      var e = bulkEnsure(pkg, selSet[pkg]);
+      e.nogame = false; e.game = true;
+    } else {
+      for (var i = glState.entries.length - 1; i >= 0; i--)
+        if (glState.entries[i].pkg === pkg) glState.entries.splice(i, 1);
+    }
+  });
+  return saveGl().then(function(){
+    toast((on ? "已加入" : "已取消") + " " + pkgs.length + " 个应用");
+    setSelMode(false);
+    renderApps();
+  });
+}
+/* 长按已选中的应用：弹出与单应用同款的菜单，选项作用于全部已选 */
+function openBulkDlg(pkg, name){
+  var pkgs = Object.keys(selSet);
+  if (!pkgs.length){ toast("先选择应用"); return; }
+  dlgLockSwitch(false);
+  $("dlgTitle").textContent = "已选 " + pkgs.length + " 个应用";
+  $("dlgSub").textContent = pkgs.slice(0, 3).join("、") + (pkgs.length > 3 ? " 等" : "");
+  $("dlgIcon").style.display = "none";
+  $("dlgRates").style.display = "none";
+  var box = $("dlgOpts");
+  box.style.display = "";
+  box.innerHTML = "";
+  function opt(icon, text, fn){
+    var div = document.createElement("div");
+    div.className = "opt";
+    div.innerHTML = '<span class="o-ic">' + icon + '</span><span>' + text + '</span>';
+    div.addEventListener("click", function(){ box.style.display = ""; $("dlgRates").style.display = "none"; fn(); });
+    box.appendChild(div);
+  }
+  opt("↺", "跟随全局", function(){
+    pkgs.forEach(function(p){ var e = bulkEnsure(p, selSet[p]); e.fps = ""; });
+    pkgs.forEach(function(p){
+      var e = findEntry(p);
+      if (e && !e.game && !e.nogame && !autoGames[p]){
+        var i = glState.entries.indexOf(e);
+        if (i >= 0) glState.entries.splice(i, 1);
+      }
+    });
+    saveGl().then(function(){ toast("已跟随全局"); setSelMode(false); renderApps(); });
+  });
+  opt("◐", "刷新率档位 ›", function(){
+    box.style.display = "none";
+    var r = $("dlgRates");
+    r.style.display = "";
+    rateChooser(r, function(){ return []; }, function(v){
+      $("dlg").style.display = "none";
+      bulkApplyRate(v);
+    }, function(){
+      r.style.display = "none"; box.style.display = "";
+    });
+  });
+  opt("🎮", "加入游戏列表", function(){ $("dlg").style.display = "none"; bulkApplyGame(true); });
+  opt("✕", "取消游戏列表", function(){ $("dlg").style.display = "none"; bulkApplyGame(false); });
+  opt("↩", "退出多选", function(){ $("dlg").style.display = "none"; setSelMode(false); });
+  $("dlg").style.display = "flex";
+}
+var deviceRates = [], deviceTiers = null;
+var panelCap = 0, cfgCap = 0;   /* 面板最高与「最高刷新率」设置 */
+var gameFps = "top";
+var offFps = 1, aodActual = 1;   /* offFps=配置值（重启后生效）；aodActual=当前实际属性值 */
+function offFpsText(v){
+  v = parseInt(v, 10) || 1;
+  return v + " Hz";
+}
+function offFpsRowText(){
+  var t = offFpsText(aodActual);   /* 当前生效值 */
+  if (offFps !== aodActual) t += " (" + offFpsText(offFps) + "切换中)";
+  return t;
+}
+var thpN = "off", thpG = "off";
+async function setThpRate(game, val){
+  var r = await exec("cat " + shq(CFG) + " 2>/dev/null");
+  var lines = (r.stdout || "").split(/\r?\n/);
+  lines = lines.filter(function(l){ return !/^\s*(sampling|sampling_game)\s*=/.test(l); });
+  lines = setCfgKey(lines, game ? "thp_report_rate_game" : "thp_report_rate_normal", val || "off");
+  var w = await exec("echo " + b64(lines.join("\n")) + " | base64 -d > " + shq(CFG) + " && chmod 644 " + shq(CFG));
+  if (w.errno !== 0){ toast("保存失败：" + (w.stderr || w.errno)); return; }
+  if (game) thpG = val || "off"; else thpN = val || "off";
+  if ($("thpNVal")) $("thpNVal").textContent = thpN === "off" ? "off" : thpN;
+  if ($("thpGVal")) $("thpGVal").textContent = thpG === "off" ? "off" : thpG;
+  function thpShow(v){ return (v && v !== "off") ? v : "off"; }
+  if ($("thpN")) $("thpN").textContent = thpShow(thpN);
+  if ($("thpG")) $("thpG").textContent = thpShow(thpG);
+  loadThpMax().then(function(mx){ if ($("thpMax")) $("thpMax").textContent = mx > 0 ? (mx + " Hz") : "-"; });
+  $("dlg").style.display = "none";
+  var fw = await applyFwRates(thpN, thpG);
+  toast("已设置 " + (val || "off") + (fw ? "，已写入固件" : ""));
+  setTimeout(refreshStatus, 900);
+}
+var thpMaxRec = null;              /* /data/adb/RRS/thp_rate_max（安装/开机时从固件读出） */
+async function loadThpMax(){
+  if (thpMaxRec != null) return thpMaxRec;
+  var r = await exec("cat /data/adb/RRS/thp_rate_max 2>/dev/null");
+  thpMaxRec = parseInt((r.stdout || "").trim(), 10) || 0;
+  return thpMaxRec;
+}
+var thpMax = null;                 /* {n: 日常上限, g: 游戏上限}，0 = 未知 */
+async function thpMaxSupported(){
+  if (thpMax) return thpMax;
+  /* 不同机型键名不一样（rate_normal / ic_rate_normal / rate_default / rate_game_super …），
+     统一抓所有 *rate* 键，按键名里的 normal|default / game 归类取最大值 */
+  var cmd =
+    "for f in " + shq(FW_DIR) + "/*thp_config.ini /odm/firmware/*thp_config.ini; do " +
+    "[ -f \"$f\" ] && grep -E '^[[:space:]]*[a-zA-Z_]*rate[a-zA-Z_]*[[:space:]]*=' \"$f\"; done; " +
+    "for f in /odm/firmware/*thp_config.cfg " + shq(FW_DIR) + "/*thp_config.cfg; do " +
+    "[ -f \"$f\" ] && " + shq(MOD + "/tools/thp_dump") +
+    " \"$f\" 2>/dev/null | grep -E '^[[:space:]]*[a-zA-Z_]*rate[a-zA-Z_]*[[:space:]]*='; done; true";
+  var r = await exec(cmd);
+  var n = 0, g = 0;
+  (r.stdout || "").split(/\r?\n/).forEach(function(l){
+    var m = l.match(/^[[:space:]]*([a-zA-Z_]*rate[a-zA-Z_]*)[[:space:]]*=[[:space:]]*(\d{2,4})\s*$/);
+    if (!m) return;
+    var k = m[1].toLowerCase(), v = parseInt(m[2], 10);
+    if (/game/.test(k)){ if (v > g) g = v; }
+    else if (/normal|default/.test(k)){ if (v > n) n = v; }
+  });
+  thpMax = { n: n, g: g };
+  return thpMax;
+}
+async function openThpDlg(game){
+  var cur = game ? thpG : thpN;
+  dlgLockSwitch(false);
+  $("dlgTitle").textContent = game ? "游戏触控采样率" : "日常触控采样率";
+  {
+    var rec = await loadThpMax();
+    $("dlgSub").textContent = rec > 0 ? ("当前最高采样率：" + rec + "Hz") : ("当前设置：" + (cur || "off"));
+  }
+  $("dlgIcon").style.display = "none";
+  $("dlgRates").style.display = "none";
+  var box = $("dlgOpts");
+  box.style.display = ""; box.innerHTML = "";
+  function opt(v, label){
+    var d = document.createElement("div");
+    d.className = "opt";
+    d.innerHTML = '<span>' + label + '</span>' + (v === cur ? '<span class="o-cur">当前</span>' : "");
+    d.addEventListener("click", function(){ setThpRate(game, v); });
+    box.appendChild(d);
+  }
+  var lim = await thpMaxSupported();
+  var mx = game ? lim.g : lim.n;              /* 0 = 读不到配置，按未知处理 */
+  opt("off", "不修改（off）");
+  [240, 360, 480].forEach(function(v){
+    if (mx > 0 && v > mx) return;             /* 超过该机型 thp 配置上限的不提供 */
+    opt(String(v), v + " Hz");
+  });
+  if (mx === 0 || mx >= 480)
+    opt("on", "自动（≥120 → 480，其余 240）");   /* 上限不足 480 的机型不提供自动，避免写入不支持的值 */
+  var curNum = parseInt(cur, 10);
+  if (curNum > 0 && [240, 360, 480].indexOf(curNum) < 0)
+    opt(cur, cur + " Hz（当前）");             /* 当前值不在预设里也列出来 */
+  var wrap = document.createElement("div");
+  wrap.className = "field"; wrap.style.marginTop = "10px";
+  wrap.innerHTML = '<label>自定义（单个数值，或 185:370,165:330 这种按刷新率列表）</label>' +
+    '<input type="text" id="thpCustom" placeholder="' + (cur === "off" ? "240" : cur) + '">';
+  box.appendChild(wrap);
+  var btn = document.createElement("button");
+  btn.className = "btn primary"; btn.style.width = "100%"; btn.textContent = "应用自定义值";
+  btn.addEventListener("click", function(){
+    var v = ($("thpCustom").value || "").trim();
+    if (!v){ toast("先输入数值"); return; }
+    setThpRate(game, v);
+  });
+  box.appendChild(btn);
+  $("dlg").style.display = "flex";
+}
+function openOffFpsDlg(){
+  dlgLockSwitch(false);
+  $("dlgTitle").textContent = "息屏刷新率";
+  $("dlgSub").textContent = "锁屏后的刷新率，亮屏恢复";
+  $("dlgIcon").style.display = "none";
+  $("dlgRates").style.display = "none";
+  var box = $("dlgOpts");
+  box.style.display = "";
+  box.innerHTML = "";
+  var curVal = (aodActual === 1 || aodActual === 30) ? aodActual : offFps;
+  function opt(v){
+    var div = document.createElement("div");
+    div.className = "opt";
+    var badge = "";
+    if (v === curVal) badge = '<span class="o-cur">当前</span>';
+    else if (v === offFps) badge = '<span class="o-cur">切换中</span>';
+    div.innerHTML = '<span class="o-ic">🕐</span><span>' + v + ' Hz</span>' + badge;
+    div.addEventListener("click", function(){ setOffFps(v); });
+    box.appendChild(div);
+  }
+  opt(1);
+  opt(30);
+  if (offFps !== aodActual) {
+    var tip = document.createElement("div");
+    tip.className = "note";
+    tip.style.margin = "8px 0 0";
+    tip.textContent = "已切换为 " + offFps + " Hz，开机生效（当前 " + aodActual + " Hz）";
+    box.appendChild(tip);
+  }
+  $("dlg").style.display = "flex";
+}
+async function setOffFps(v){
+  var r = await exec("cat " + shq(CFG) + " 2>/dev/null");
+  var lines = (r.stdout || "").split(/\r?\n/);
+  lines = setCfgKey(lines, "aod_fps", String(v));
+  var w = await exec("echo " + b64(lines.join("\n")) + " | base64 -d > " + shq(CFG) + " && chmod 644 " + shq(CFG));
+  if (w.errno === 0){
+    /* ro 属性运行期改不动：写 config 供记录/显示，同时改 system.prop，下次开机会写入属性 */
+    await exec("for p in " + shq(MOD + "/system.prop") + " " + shq("/data/adb/modules_update/RRS/system.prop") + "; do " +
+      "[ -f \"$p\" ] || continue; " +
+      "if grep -q '^ro.vendor.mi_sf.aod_mode_ddic_refresh_rate=' \"$p\"; then " +
+      "sed -i 's/^ro.vendor.mi_sf.aod_mode_ddic_refresh_rate=.*/ro.vendor.mi_sf.aod_mode_ddic_refresh_rate=" + v + "/' \"$p\"; " +
+      "else echo 'ro.vendor.mi_sf.aod_mode_ddic_refresh_rate=" + v + "' >> \"$p\"; fi; done");
+    offFps = v;
+    if ($("cfgOffVal")) $("cfgOffVal").textContent = offFpsRowText();
+    toast("息屏刷新率：" + offFpsText(v) + "（开机生效）");
+    $("dlg").style.display = "none";
+  } else toast("保存失败：" + (w.stderr || w.errno));
+}
+function gameFpsText(v){
+  v = String(v || "");
+  if (!v) return "未设置";
+  if (v === "top") return "最高档";
+  if (v === "off") return "系统动态";
+  if (v === "smart" || v === "dyn") return "动态（跟随全局档位）";
+  return v + " Hz";
+}
+async function setGameFps(v){
+  await clearSysDefault();
+  var r = await exec("cat " + shq(CFG) + " 2>/dev/null");
+  var lines = (r.stdout || "").split(/\r?\n/);
+  lines = setCfgKey(lines, "game_fps", v);
+  var w = await exec("echo " + b64(lines.join("\n")) + " | base64 -d > " + shq(CFG) + " && chmod 644 " + shq(CFG));
+  if (w.errno === 0){
+    gameFps = v;
+    if ($("cfgGameVal")) $("cfgGameVal").textContent = gameFpsText(v);
+    toast("默认游戏刷新率：" + gameFpsText(v));
+    $("dlg").style.display = "none";
+    setTimeout(refreshStatus, 600);
+  } else {
+    toast("保存失败：" + (w.stderr || w.errno));
+  }
+}
+function openGameFpsDlg(){
+  dlgLockSwitch(false);
+  $("dlgTitle").textContent = "默认游戏刷新率";
+  $("dlgSub").textContent = "游戏内（AppList / Game Turbo 识别）使用的刷新率";
+  $("dlgIcon").style.display = "none";
+  $("dlgRates").style.display = "none";
+  var box = $("dlgOpts");
+  box.style.display = "";
+  box.innerHTML = "";
+  function opt(icon, text, active, fn){
+    var div = document.createElement("div");
+    div.className = "opt";
+    div.innerHTML = '<span class="o-ic">' + icon + '</span><span>' + text + '</span>' +
+      (active ? '<span class="o-cur">当前</span>' : '');
+    div.addEventListener("click", fn);
+    box.appendChild(div);
+  }
+  opt("▲", "最高档", gameFps === "top", function(){ setGameFps("top"); });
+  opt("◐", "动态（跟随全局档位）", gameFps === "dyn" || gameFps === "smart", function(){ setGameFps("dyn"); });
+  opt("∅", "系统动态（交还系统）", gameFps === "off", function(){ setGameFps("off"); });
+  opt("🕐", "指定帧率 ›", /^\d+$/.test(String(gameFps)), function(){
+    box.style.display = "none";
+    var r = $("dlgRates");
+    r.style.display = "";
+    var rates = rateList();
+    var cur = parseInt(gameFps, 10) || 0;
+    function paint(){
+      var html = '<div class="ratecap">选中一个帧率作为游戏内固定值</div><div class="rategrid">';
+      rates.forEach(function(v){
+        html += '<button data-rate="' + v + '" class="' + (cur === v ? "on" : "") + '">' + v + ' Hz</button>';
+      });
+      html += '</div><div class="btns"><button class="btn" data-act="back">返回</button>' +
+        '<button class="btn primary" data-act="apply">应用</button></div>';
+      r.innerHTML = html;
+      Array.prototype.forEach.call(r.querySelectorAll("button[data-rate]"), function(b){
+        b.addEventListener("click", function(){
+          cur = parseInt(b.getAttribute("data-rate"), 10);
+          paint();
+        });
+      });
+      Array.prototype.forEach.call(r.querySelectorAll("button[data-act]"), function(b){
+        b.addEventListener("click", function(){
+          if (b.getAttribute("data-act") === "back"){ r.style.display = "none"; box.style.display = ""; return; }
+          if (cur > 0) setGameFps(String(cur));
+        });
+      });
+    }
+    paint();
+  });
+  $("dlg").style.display = "flex";
+}
+var brightCapSel = 0;
+var brightLowDyn = false;      // false = 锁定最高刷新率（默认），true = 动态最高刷新率
+var animBoost = "cap";      // cap = 本机最高刷新率，ladder = 档位最高档
+function openAnimBoostDlg(){
+  dlgLockSwitch(false);
+  $("dlgTitle").textContent = "系统动画加速";
+  $("dlgSub").textContent = "动画触发时升到哪个刷新率";
+  $("dlgIcon").style.display = "none";
+  $("dlgRates").style.display = "none";
+  var box = $("dlgOpts");
+  box.style.display = "";
+  box.innerHTML = "";
+  function opt(text, active, fn){
+    var div = document.createElement("div");
+    div.className = "opt";
+    div.innerHTML = '<span class="o-ic">◐</span><span>' + text + '</span>' +
+      (active ? '<span class="o-cur">当前</span>' : '');
+    div.addEventListener("click", fn);
+    box.appendChild(div);
+  }
+  function pick(v){
+    animBoost = v;
+    if ($("animBoostVal")) $("animBoostVal").textContent = v === "ladder" ? "档位最高刷新率" : "本机最高刷新率";
+    $("dlg").style.display = "none";
+    saveCfg();
+  }
+  opt("本机最高刷新率", animBoost !== "ladder", function(){ pick("cap"); });
+  opt("档位最高刷新率", animBoost === "ladder", function(){ pick("ladder"); });
+  $("dlg").style.display = "flex";
+}
+function renderBrightCap(cur){
+  brightCapSel = parseInt(cur, 10) || 144;
+  if ($("brightCapVal")) $("brightCapVal").textContent = brightCapSel + " Hz";
+  toggleBrightCap();
+}
+function openBrightCapDlg(){
+  $("dlgTitle").textContent = "低亮度最高刷新率";
+  $("dlgLockWrap").style.display = "inline-flex";
+  $("dlgBrightLock").checked = !brightLowDyn;
+  $("dlgBrightLock").onchange = function(){
+    brightLowDyn = !this.checked;
+    $("dlgSub").textContent = brightLowDyn ? "非锁定时动态档位限制最高刷新率" : "锁定时固定刷新率";
+    saveCfg();
+  };
+  $("dlgSub").textContent = brightLowDyn ? "非锁定时动态档位限制最高刷新率" : "锁定时固定刷新率";
+  $("dlgIcon").style.display = "none";
+  $("dlgRates").style.display = "none";
+  var box = $("dlgOpts");
+  box.style.display = "";
+  box.innerHTML = "";
+  function opt(text, active, fn){
+    var div = document.createElement("div");
+    div.className = "opt";
+    div.innerHTML = '<span class="o-ic">◐</span><span>' + text + '</span>' +
+      (active ? '<span class="o-cur">当前</span>' : '');
+    div.addEventListener("click", fn);
+    box.appendChild(div);
+  }
+  function pick(v){
+    renderBrightCap(v);
+    $("dlg").style.display = "none";
+    saveCfg();
+  }
+  rateList().forEach(function(v){
+    opt(v + " Hz", brightCapSel === v, function(){ pick(v); });
+  });
+  $("dlg").style.display = "flex";
+}
+function dlgLockSwitch(show){
+  if ($("dlgLockWrap")) $("dlgLockWrap").style.display = show ? "inline-flex" : "none";
+}
+function toggleBrightCap(){
+  var row = $("rowBrightCap");
+  if (!row) return;
+  var bl = parseInt($("cfg_bright_low").value, 10) || 0;
+  row.style.display = bl > 0 ? "" : "none";
+}
+function effectiveCap(){
+  var cap = panelCap > 0 ? panelCap : 0;
+  if (cfgCap > 0 && (cap === 0 || cfgCap < cap)) cap = cfgCap;
+  return cap;
+}
+function rateList(){
+  var list = deviceRates.filter(function(v){ return v >= 60; });
+  if (!list.length) list = [185, 165, 144, 120, 90, 60];
+  var cap = effectiveCap();
+  if (cap > 0){
+    list = list.filter(function(v){ return v <= cap; });
+    if (!list.length) list = [cap];
+  }
+  list.sort(function(a, b){ return b - a; });
+  return list;
+}
+
+function ksuListPackages(){
+  if (typeof ksu === "undefined" || !ksu.listPackages) return null;
+  var types = ["all", "user"];
+  for (var i = 0; i < types.length; i++){
+    try {
+      var arr = JSON.parse(ksu.listPackages(types[i]));
+      if (arr && arr.length) return arr;
+    } catch(e){}
+  }
+  return null;
+}
+function ksuPackagesInfo(names){
+  var out = {};
+  try {
+    if (typeof ksu === "undefined" || !ksu.getPackagesInfo) return out;
+    var arr = JSON.parse(ksu.getPackagesInfo(JSON.stringify(names)));
+    (arr || []).forEach(function(x){ if (x && x.packageName) out[x.packageName] = x; });
+  } catch(e){}
+  return out;
+}
+async function loadApps(){
+  if (appsLoaded) return;
+  var names = ksuListPackages() || [];
+  if (!names.length){
+    var r0 = await exec("/system/bin/pm list packages 2>/dev/null | cut -d: -f2");
+    names = (r0.stdout || "").split(/\s+/).filter(function(x){ return x && x.indexOf(".") >= 0; });
+  }
+  var info = ksuPackagesInfo(names);
+  var seen = {};
+  allApps = [];
+  names.forEach(function(p){
+    if (seen[p]) return; seen[p] = 1;
+    var it = info[p] || {};
+    var lbl = (it.appLabel && it.appLabel !== p) ? it.appLabel : p;   /* 只用系统返回的真实名称 */
+    allApps.push({ pkg: p, label: lbl, system: !!it.isSystem,
+      icon: it.icon || it.iconBase64 || it.appIcon || "" });
+  });
+  allApps.sort(function(a, b){ return String(a.label).localeCompare(String(b.label), "zh"); });
+  appsLoaded = true;
+  enrichApps();   /* 后台补系统应用与缺失的 label/图标，不阻塞首屏 */
+}
+
+/* 首屏先渲染，随后后台补齐：pm list（系统应用）+ 分批 getPackagesInfo（label/图标） */
+async function enrichApps(){
+  try {
+    var r = await exec("/system/bin/pm list packages 2>/dev/null | cut -d: -f2");
+    var names = (r.stdout || "").split(/\s+/).filter(function(x){ return x && x.indexOf(".") >= 0; });
+    var have = {};
+    allApps.forEach(function(a){ have[a.pkg] = 1; });
+    var added = false;
+    names.forEach(function(p){
+      if (have[p]) return;
+      have[p] = 1;
+      allApps.push({ pkg: p, label: p, system: true, icon: "" });
+      added = true;
+    });
+    if (added){
+      allApps.sort(function(a, b){ return String(a.label).localeCompare(String(b.label), "zh"); });
+      renderApps();
+    }
+    /* 只对缺 label / 缺图标的条目分批查询，每批 60 */
+    var need = allApps.filter(function(a){ return a.label === a.pkg || !a.icon; })
+                      .map(function(a){ return a.pkg; });
+    for (var i = 0; i < need.length; i += 60){
+      var part = ksuPackagesInfo(need.slice(i, i + 60));
+      var changed = false;
+      allApps.forEach(function(a){
+        var it = part[a.pkg];
+        if (!it) return;
+        if (it.appLabel && it.appLabel !== a.pkg && it.appLabel !== a.label){
+          a.label = it.appLabel; changed = true;
+        }
+        var ic = it.icon || it.iconBase64 || it.appIcon || "";
+        if (!a.icon && ic){ a.icon = ic; changed = true; }
+        if (it.isSystem) a.system = true;
+      });
+      if (changed){
+        allApps.sort(function(a, b){ return String(a.label).localeCompare(String(b.label), "zh"); });
+        renderApps();
+      }
+    }
+  } catch(e){}
+}
+
+function isGamePkg(pkg, mm){
+  var e = findEntry(pkg);
+  if (e) return !!e.game;
+  return !!autoGames[pkg];
+}
+function colorOf(pkg){
+  var h = 0;
+  for (var i = 0; i < pkg.length; i++) h = (h * 31 + pkg.charCodeAt(i)) >>> 0;
+  var colors = ["#6C8CD5","#A56CC1","#3F9C8F","#C77B4E","#B85C7A","#5C7CFA","#7D6BE8","#4E9A6B","#B8863B","#8A6CB8"];
+  return colors[h % colors.length];
+}
+function initialOf(a){
+  var s = String(a.label || a.pkg);
+  return s ? s.trim().charAt(0).toUpperCase() : "?";
+}
+
+var iconIO = null;
+function fallbackIcon(img){
+  var pkg = img.getAttribute("data-pkg") || "";
+  var label = img.getAttribute("data-label") || pkg;
+  var div = document.createElement("div");
+  div.className = "avatar" + (img.classList.contains("big") ? " big" : "");
+  div.style.background = colorOf(pkg);
+  div.textContent = initialOf({ pkg: pkg, label: label });
+  if (img.parentNode) img.parentNode.replaceChild(div, img);
+}
+var iconSeen = {};   /* 本会话已请求过的图标：后续渲染直接设 src（走浏览器缓存） */
+var ICON_BATCH = 50;
+
+function lazyIcons(container){
+  var imgs = container.querySelectorAll("img.avatar");
+  if (!imgs.length) return;
+  var fresh = [];
+  Array.prototype.forEach.call(imgs, function(im){
+    var pkg = im.getAttribute("data-pkg");
+    if (!pkg) return;
+    if (iconSeen[pkg]){
+      im.onerror = function(){ im.onerror = null; fallbackIcon(im); };
+      im.src = "ksu://icon/" + pkg;       /* 已请求过：直接加载（浏览器缓存命中） */
+    } else {
+      fresh.push(im);
+    }
+  });
+  (function nextBatch(){
+    var batch = fresh.splice(0, ICON_BATCH);
+    if (!batch.length) return;
+    var left = batch.length;
+    var timer = setTimeout(function(){ if (left > 0){ left = 0; nextBatch(); } }, 2000);
+    batch.forEach(function(im){
+      var pkg = im.getAttribute("data-pkg");
+      iconSeen[pkg] = 1;
+      function done(){
+        im.onload = im.onerror = null;
+        if (--left === 0){ clearTimeout(timer); setTimeout(nextBatch, 30); }
+      }
+      im.onload = done;
+      im.onerror = function(){ done(); fallbackIcon(im); };
+      im.src = "ksu://icon/" + pkg;
+    });
+  })();
+}
+
+function renderApps(){
+  var mm = manualMap();
+  var box = $("appList");
+  var q = appQuery.trim().toLowerCase();
+  var list = allApps.filter(function(a){
+    var game = isGamePkg(a.pkg, mm);
+    if (appFilter === "app" && game) return false;
+    if (appFilter === "game" && !game) return false;
+    if (!q) return true;
+    return (a.label + " " + a.pkg).toLowerCase().indexOf(q) >= 0;
+  });
+  function rank(pkg){
+    var e = findEntry(pkg);
+    if (e && (e.fps || (!e.game && autoGames[pkg]))) return 0;   /* 手动改过帧率 / 被排除的置顶 */
+    if (isGamePkg(pkg, mm)) return 1;            /* 其次游戏 */
+    return 2;
+  }
+  list.sort(function(a, b){
+    var ra = rank(a.pkg), rb = rank(b.pkg);
+    if (ra !== rb) return ra - rb;
+    return String(a.label).localeCompare(String(b.label), "zh");
+  });
+  var games = 0, sys = 0;
+  allApps.forEach(function(a){ if (isGamePkg(a.pkg, mm)) games++; if (a.system) sys++; });
+  $("appCount").textContent = "共 " + allApps.length + " 个应用（系统 " + sys + "） · 游戏 " + games + " 个";
+  if (!appsLoaded){ box.innerHTML = '<div class="note">正在读取应用列表…</div>'; return; }
+  if (!list.length){ box.innerHTML = '<div class="note">没有匹配的应用</div>'; return; }
+  var html = "";
+  list.forEach(function(a){
+    var game = isGamePkg(a.pkg, mm);
+    var ent = findEntry(a.pkg);
+    var fps = ent ? (ent.fps || "") : null;
+    var tag;
+    if (ent && !ent.game && autoGames[a.pkg]) tag = fps ? ("排除 · " + fpsText(fps)) : "已排除";
+    else if (game && fps) tag = "游戏 · " + fpsText(fps);
+    else if (game) tag = "游戏";
+    else if (fps === null || fps === "") tag = "全局";
+    else tag = fpsText(fps);
+    var avHtml = a.icon
+      ? '<div class="avatar" style="background-image:url(' + a.icon + ');background-size:cover;background-position:center"></div>'
+      : '<img class="avatar" data-pkg="' + a.pkg + '" data-label="' + String(a.label).replace(/"/g,"&quot;") + '" alt="" draggable="false">';
+    var picked = selSet[a.pkg] !== undefined;
+    html += '<div class="appitem' + (selMode ? " sel" : "") + (picked ? " picked" : "") +
+      '" data-pkg="' + a.pkg + '" data-name="' + String(a.label).replace(/"/g,"&quot;") + '">' +
+      (selMode ? '<span class="pick"></span>' : '') +
+      avHtml +
+      '<div class="txt"><div class="nm">' + String(a.label).replace(/</g,"&lt;") + '</div><div class="pk">' + a.pkg + '</div></div>' +
+      '<span class="tagit' + (game ? " game" : "") + '">' + tag + '</span></div>';
+  });
+  box.innerHTML = html;
+  lazyIcons(box);
+  Array.prototype.forEach.call(box.querySelectorAll(".appitem"), function(el){
+    var pkg = el.getAttribute("data-pkg");
+    var name = el.getAttribute("data-name") || pkg;
+    var timer = null, longPressed = false;
+    var sx = 0, sy = 0;
+    function start(e){
+      longPressed = false;
+      if (e && e.touches && e.touches[0]){ sx = e.touches[0].clientX; sy = e.touches[0].clientY; }
+      if (timer){ clearTimeout(timer); timer = null; }
+      timer = setTimeout(function(){
+        longPressed = true;
+        lpGuard = Date.now() + 600;   /* 渲染后吞掉长按带出的那次 click */
+        if (selMode){
+          if (selSet[pkg] !== undefined) openBulkDlg(pkg, name);  /* 已选：批量菜单 */
+        } else {
+          setSelMode(true);          /* 未选：长按进入多选并选中 */
+          togglePick(pkg, name);
+        }
+      }, 450);
+    }
+    function cancel(){ if (timer){ clearTimeout(timer); timer = null; } }
+    function move(e){
+      if (!timer) return;
+      if (e && e.touches && e.touches[0]){
+        var dx = e.touches[0].clientX - sx, dy = e.touches[0].clientY - sy;
+        if (dx * dx + dy * dy > 144) cancel();   /* 移动超过 12px 才取消 */
+      }
+    }
+    el.addEventListener("contextmenu", function(e){ e.preventDefault(); });
+    el.addEventListener("selectstart", function(e){ e.preventDefault(); });
+    el.addEventListener("touchstart", start, {passive:true});
+    el.addEventListener("touchend", cancel);
+    el.addEventListener("touchmove", move, {passive:true});
+    el.addEventListener("mousedown", start);
+    el.addEventListener("mouseup", cancel);
+    el.addEventListener("mouseleave", cancel);
+    el.addEventListener("click", function(e){
+      e.preventDefault();
+      if (longPressed || Date.now() < lpGuard) return;
+      if (selMode){ togglePick(pkg, name); return; }
+      openAppDlg(pkg, name);
+    });
+  });
+}
+
+function addGame(pkg, name){
+  var idx = -1;
+  glState.entries.forEach(function(e, i){ if (e.pkg === pkg) idx = i; });
+  if (idx >= 0){
+    var e = glState.entries[idx];
+    e.nogame = false; e.game = true;      /* 刷新率保留 */
+    if (!e.name) e.name = name;
+  } else {
+    glState.entries.push({ pkg: pkg, name: name, fps: "", game: true });
+  }
+  return saveGl().then(function(){
+    $("dlg").style.display = "none";
+    toast("已加入游戏列表：" + name);
+    renderApps();
+  });
+}
+function removeGame(pkg, name){
+  var e = findEntry(pkg);
+  if (!e){ e = { pkg: pkg, name: name || "", fps: "", nogame: false }; glState.entries.push(e); }
+  e.game = false; e.nogame = false;
+  if (autoGames[pkg]){
+    /* 自动识别的游戏：留在应用段（写 game 标记），不再进游戏处理 */
+  } else if (!e.fps){
+    /* 没刷新率也没被排除 → 条目没意义，删掉（回到全局） */
+    var i = glState.entries.indexOf(e);
+    if (i >= 0) glState.entries.splice(i, 1);
+  }
+  return saveGl().then(function(){
+    $("dlg").style.display = "none";
+    toast("已移出游戏列表：" + (name || pkg));
+    renderApps();
+  });
+}
+
+function saveAppChoice(pkg, name, fps){
+  var i = -1;
+  glState.entries.forEach(function(e, k){ if (e.pkg === pkg) i = k; });
+  if (fps === null){ if (i >= 0) glState.entries.splice(i, 1); }
+  else if (i >= 0){ glState.entries[i].fps = fps; glState.entries[i].name = glState.entries[i].name || name; }
+  else glState.entries.push({ pkg: pkg, name: name, fps: fps });
+  return saveGl().then(function(){
+    $("dlg").style.display = "none";
+    renderApps();
+    toast("已保存：" + name);
+  });
+}
+function findEntry(pkg){
+  for (var i = 0; i < glState.entries.length; i++)
+    if (glState.entries[i].pkg === pkg) return glState.entries[i];
+  return null;
+}
+function ensureEntry(pkg, name){
+  var e = findEntry(pkg);
+  if (!e){ e = { pkg: pkg, name: name || "", fps: "", nogame: false }; glState.entries.push(e); }
+  else if (!e.name && name) e.name = name;
+  return e;
+}
+function saveEntry(pkg, name, mut){
+  var e = ensureEntry(pkg, name);
+  mut(e);
+  if (!e.fps && !e.delays && !e.rate && !e.nogame && !e.game){
+    var i = glState.entries.indexOf(e);
+    if (i >= 0) glState.entries.splice(i, 1);
+  }
+  return saveGl().then(function(){
+    $("dlg").style.display = "none";
+    renderApps();
+    toast("已保存：" + (name || pkg));
+  });
+}
+function fpsText(fps){
+  if (fps === undefined || fps === null || fps === "") return "";
+  if (fps === "top") return "最高";
+  if (fps === "off") return "系统动态";
+  if (String(fps).indexOf(",") >= 0) return "动态 " + String(fps).split(",").join("/");
+  return fps + " Hz";
+}
+async function openAppRateDlg(pkg, name){
+  var e0 = findEntry(pkg);
+  var cur = (e0 && e0.rate) || "";
+  var rec = await loadThpMax();
+  dlgLockSwitch(false);
+  $("dlgTitle").textContent = "触控采样率";
+  $("dlgSub").textContent = (rec > 0 ? "当前最高采样率：" + rec + "Hz" : "") + (cur ? "（当前：" + cur + "）" : "");
+  $("dlgIcon").style.display = "none";
+  $("dlgRates").style.display = "none";
+  var box = $("dlgOpts");
+  box.style.display = "";
+  box.innerHTML = "";
+  function opt(v, label){
+    var d = document.createElement("div");
+    d.className = "opt";
+    d.innerHTML = '<span>' + label + '</span>' + ((v || "") === cur ? '<span class="o-cur">当前</span>' : "");
+    d.addEventListener("click", function(){
+      saveEntry(pkg, name, function(e){ e.rate = v; });
+    });
+    box.appendChild(d);
+  }
+  opt("", "跟随全局（游戏）");
+  opt("off", "不修改（off）");
+  [240, 360, 480].forEach(function(v){
+    if (rec > 0 && v > rec) return;
+    opt(String(v), v + " Hz");
+  });
+  var wrap = document.createElement("div");
+  wrap.className = "field";
+  wrap.style.marginTop = "10px";
+  wrap.innerHTML = '<label>自定义（单个数值，或 185:370,120:240）</label>' +
+    '<input type="text" id="appRate" placeholder="' + (cur && cur !== "off" ? cur : "480") + '">';
+  box.appendChild(wrap);
+  var btn = document.createElement("button");
+  btn.className = "btn primary";
+  btn.style.width = "100%";
+  btn.textContent = "应用自定义值";
+  btn.addEventListener("click", function(){
+    var v = ($("appRate").value || "").trim();
+    if (!v){ toast("先输入数值"); return; }
+    saveEntry(pkg, name, function(e){ e.rate = v; });
+  });
+  box.appendChild(btn);
+  $("dlg").style.display = "flex";
+}
+
+function rateChooser(host, getSel, onApply, onCancel, delays){
+  var sel = getSel();
+  var rates = rateList();
+  var dval = delays ? (delays.get() || "") : "";
+  function paint(){
+    var cur = host.querySelector("#rcDelays");
+    if (cur) dval = cur.value;
+    var html = '<div class="ratecap">选 1 个 = 固定；选 2 个以上 = 动态（触摸回最高档，再按停留时间逐级下探）；可加「自适应」</div><div class="rategrid">';
+    rates.forEach(function(v){
+      html += '<button data-rate="' + v + '" class="' + (sel.indexOf(v) >= 0 ? "on" : "") + '">' + v + ' Hz</button>';
+    });
+    html += '<button data-auto="1" class="' + (sel.indexOf("auto") >= 0 ? "on" : "") + '">自适应</button>';
+    html += '</div>';
+    if (delays){
+      html += '<div class="field" style="margin:8px 0"><label>每段停留（毫秒，逗号分隔）</label>' +
+        '<input type="text" id="rcDelays" value="' + dval + '" placeholder="1000,2000"></div>';
+    }
+    html += '<div class="btns"><button class="btn primary" data-act="apply">应用</button>' +
+      '<button class="btn" data-act="top">' + (effectiveCap() > 0 ? ("最高 " + effectiveCap() + " Hz") : "最高") + '</button>' +
+      '<button class="btn" data-act="off">系统动态</button>' +
+      '<button class="btn" data-act="cancel">取消</button></div>';
+    host.innerHTML = html;
+    Array.prototype.forEach.call(host.querySelectorAll("button[data-rate]"), function(b){
+      b.addEventListener("click", function(){
+        var v = parseInt(b.getAttribute("data-rate"), 10);
+        var i = sel.indexOf(v);
+        if (i >= 0) sel.splice(i, 1); else sel.push(v);
+        paint();
+      });
+    });
+    var ab = host.querySelector("button[data-auto]");
+    if (ab) ab.addEventListener("click", function(){
+      var i = sel.indexOf("auto");
+      if (i >= 0) sel.splice(i, 1); else sel.push("auto");
+      paint();
+    });
+    Array.prototype.forEach.call(host.querySelectorAll("button[data-act]"), function(b){
+      b.addEventListener("click", function(){
+        var act = b.getAttribute("data-act");
+        if (act === "cancel"){ onCancel(); return; }
+        if (delays) delays.set(dval);
+        if (act === "top"){ onApply("top"); return; }
+        if (act === "off"){ onApply("off"); return; }
+        var out = sel.filter(function(v){ return v !== "auto"; }).sort(function(a, c){ return c - a; });
+        if (sel.indexOf("auto") >= 0) out.push("auto");
+        onApply(out.join(","));
+      });
+    });
+  }
+  paint();
+}
+function openAppDlg(pkg, name){
+  var e0 = findEntry(pkg);
+  var cur = e0 ? (e0.fps || "") : null;
+  dlgLockSwitch(false);
+  $("dlgTitle").textContent = name;
+  $("dlgSub").textContent = pkg + (autoGames[pkg] ? " · 游戏" : "") + (e0 && e0.nogame ? " · 已排除" : "");
+  var di = $("dlgIcon");
+  di.style.display = "";
+  di.onerror = function(){ di.style.display = "none"; };
+  di.src = "ksu://icon/" + pkg;
+
+  $("dlgRates").style.display = "none";
+  var box = $("dlgOpts");
+  box.style.display = "";
+  box.innerHTML = "";
+
+  function opt(icon, text, active, fn){
+    var div = document.createElement("div");
+    div.className = "opt";
+    div.innerHTML = '<span class="o-ic">' + icon + '</span><span>' + text + '</span>' +
+      (active ? '<span class="o-cur">当前</span>' : '');
+    div.addEventListener("click", fn);
+    box.appendChild(div);
+  }
+  var hasRate = cur !== null && cur !== "" && cur !== "top" && cur !== "off";
+  var listed = isGamePkg(pkg, manualMap());
+  opt("↺", "跟随全局", cur === null || cur === "", function(){
+    saveEntry(pkg, name, function(e){ e.fps = ""; });
+  });
+  {
+    opt("◐", "刷新率档位" + (hasRate ? "（" + fpsText(cur) + "）" : " ›"), hasRate, function(){
+      box.style.display = "none";
+      var r = $("dlgRates");
+      r.style.display = "";
+      var pendDelays = (e0 && e0.delays) || "";
+      if ($("dlgCancel")) $("dlgCancel").style.display = "none";   /* 只用面板里的取消 */
+      rateChooser(r, function(){
+        if (!hasRate) return [];
+        return String(cur).split(",").map(function(x){
+          x = x.trim();
+          if (x === "auto" || x === "自适应") return "auto";
+          var n = parseInt(x, 10);
+          return n > 0 ? n : null;
+        }).filter(function(x){ return x !== null; });
+      }, function(v){
+        saveEntry(pkg, name, function(e){ e.fps = v; e.delays = pendDelays; });
+      }, function(){
+        r.style.display = "none"; box.style.display = "";
+        if ($("dlgCancel")) $("dlgCancel").style.display = "";
+      }, {
+        get: function(){ return pendDelays; },
+        set: function(v){ pendDelays = v; }
+      });
+    });
+    opt("▲", "最高档", cur === "top", function(){
+      saveEntry(pkg, name, function(e){ e.fps = "top"; });
+    });
+    opt("∅", "不干预", cur === "off", function(){
+      saveEntry(pkg, name, function(e){ e.fps = "off"; });
+    });
+  }
+  opt("⏱", "触控采样率" + (e0 && e0.rate ? "（" + e0.rate + "）" : "（跟随全局）"), false, function(){
+    openAppRateDlg(pkg, name);
+  });
+  opt("🎮", listed ? "取消游戏列表" : "加入游戏列表", false, function(){
+    if (listed) removeGame(pkg, name); else addGame(pkg, name);
+  });
+
+  $("dlg").style.display = "flex";
+}
+
+
+/* ---------- 状态 ---------- */
+var statusBusy = false, lastPid = "";
+/* 只读系统显示刷新率（每秒轮询，用于首页当前帧率） */
+async function refreshFpsOnly(){
+  var r = await exec('D=$(cmd display get-active-mode 0 2>/dev/null | grep -o "Refresh Rate: [0-9.]*" | head -1 | grep -o "[0-9.]*"); [ -z "$D" ] && D=$(dumpsys display 2>/dev/null | grep -oE "renderFrameRate [0-9.]+" | head -1 | grep -o "[0-9.]*"); echo "$D"');
+  var v = Math.round(parseFloat((r.stdout || "").trim()));
+  if (v > 0 && $("curFps"))
+    $("curFps").innerHTML = '<span class="dot on"></span>' + v + " Hz";
+}
+async function refreshStatus(full){
+  if (statusBusy) return;
+  statusBusy = true;
+  try {
+  var card = $("statusCard");
+  if (card) card.classList.add("loading");
+  var cmd = 'echo "PID=$(pidof RRS_Daemon)"; echo "AOD=$(getprop ro.vendor.mi_sf.aod_mode_ddic_refresh_rate)"; M=$(getprop ro.product.marketname); [ -z \"$M\" ] && M=$(getprop ro.product.model); echo \"MODEL=$M\"; D=$(cmd display get-active-mode 0 2>/dev/null | grep -o \"Refresh Rate: [0-9.]*\" | head -1 | grep -o \"[0-9.]*\"); [ -z \"$D\" ] && D=$(dumpsys display 2>/dev/null | grep -oE \"renderFrameRate [0-9.]+\" | head -1 | grep -o \"[0-9.]*\"); echo \"DISPLAY=$D\"; echo PROBE_BEGIN; ' + shq(BIN) + ' --probe 2>/dev/null; echo PROBE_END';
+  var r = await exec(cmd);
+  if (card) card.classList.remove("loading");
+  var out = r.stdout || "";
+  function val(k){ var m = out.match(new RegExp("^" + k + "=(.*)$", "m")); return m ? m[1].trim() : ""; }
+  function sect(a, b){ var m = out.match(new RegExp(a + "\\n([\\s\\S]*?)\\n" + b)); return m ? m[1] : ""; }
+  var pid = val("PID");
+  var aodProp = parseInt(val("AOD"), 10);
+  var probe = sect("PROBE_BEGIN", "PROBE_END");
+  if (pid !== lastPid){ full = true; lastPid = pid; }   /* daemon 重启/掉线：全量刷新一次 */
+  var run = !!pid;
+  $("runText").textContent = run ? "daemon 运行中" : "daemon 未运行";
+  $("statusTag").textContent = run ? ("PID " + pid) : "未启动";
+  var afps = val("DISPLAY");           /* 系统实际显示刷新率（cmd display/dumpsys） */
+  if (!afps) afps = (probe.match(/active:\s*fps=(\d+)/) || [])[1];
+  if (afps) afps = String(Math.round(parseFloat(afps)));   /* 185.00 -> 185 */
+  $("curFps").innerHTML = '<span class="dot ' + (run ? "on" : "off") + '"></span>' +
+    (afps ? (afps + " Hz") : "- Hz");
+  if (!full) { statusBusy = false; return; }   /* 轻量轮询：只更新当前帧率/运行状态 */
+  if ($("devModel")) $("devModel").textContent = val("MODEL") || "-";
+  if (aodProp === 1 || aodProp === 30)         /* 当前息屏刷新率（开机属性实际值） */
+    aodActual = aodProp;
+  if ($("cfgOffVal")) $("cfgOffVal").textContent = offFpsRowText();
+  if ($("aodVal")) $("aodVal").textContent = offFpsRowText();
+  var tiers = probe.match(/tiers:\s*top=(\d+)\s+mid=(\d+)\s+low=(\d+)/);
+  deviceTiers = tiers ? { top: +tiers[1], mid: +tiers[2], low: +tiers[3] } : null;
+  var effLine = probe.match(/(?:smart|dyn) tiers:\s*([\d\s>-]+)/);
+  var effTiers = effLine ? effLine[1].split("->").map(function(x){ return parseInt(x, 10); })
+    .filter(function(x){ return x > 0; }) : [];
+  effTiersCache = effTiers.slice();
+  var tierList = effTiers.length ? effTiers
+    : (deviceTiers ? [deviceTiers.top, deviceTiers.mid, deviceTiers.low] : []);
+  $("tiers").textContent = tierList.length ? tierList.join(" → ") : "-";
+  (function(){
+    var set = {};
+    (probe.match(/fps=(\d+)/g) || []).forEach(function(x){ var v = parseInt(x.slice(4), 10); if (v >= 24) set[v] = 1; });
+    deviceRates = Object.keys(set).map(Number);
+  })();
+  renderGlobalRates();
+  var gb = (probe.match(/gamebooster\((\d+)\)/) || [])[1];
+  var gline = probe.match(/gamebooster\(\d+\):([^\n]*)/);
+  autoGames = {};
+  if (gline){ gline[1].trim().split(/\s+/).forEach(function(p){ if (p) autoGames[p] = 1; }); }
+  var cap = (probe.match(/support_cap=(\d+)/) || [])[1];
+  panelCap = cap ? parseInt(cap, 10) : 0;
+  var modes = (probe.match(/^modes:\s*(\d+)/m) || [])[1];
+  $("panelCap").textContent = cap ? (cap + " Hz") : "-";
+  var vm = probe.match(/dryrun=0 log=(\d)/);
+  if (vm) $("cfg_log").checked = vm[1] === "1";
+  } catch(e){ /* 单次探测失败不影响下次轮询 */ }
+  statusBusy = false;
+}
+
+function applyWall(){
+  var data = localStorage.getItem("rrs_wall") || "";
+  var on = !!data && uiCfg.wall !== false;
+  document.body.classList.toggle("wall-on", on);
+  var w = document.getElementById("wall");
+  w.style.backgroundImage = data ? "url(" + data + ")" : "";
+  var bl = uiCfg.wallBlur == null ? 2 : +uiCfg.wallBlur;
+  w.style.filter = "blur(" + bl + "px)";
+  if ($("cfg_wallblur")) $("cfg_wallblur").value = String(bl);
+  if ($("wallBlurVal")) $("wallBlurVal").textContent = bl + "px";
+}
+function setWallFile(file){
+  if (!file) return;
+  if (file.size > 10 * 1024 * 1024){ toast("图片超过 10 MB"); return; }
+  var fr = new FileReader();
+  fr.onload = function(){
+    var img = new Image();
+    img.onload = function(){
+      var max = 2400, q = 0.88, data = "";
+      for (var i = 0; i < 7; i++){
+        var sc = Math.min(1, max / Math.max(img.width, img.height));
+        var cw = Math.max(1, Math.round(img.width * sc));
+        var ch = Math.max(1, Math.round(img.height * sc));
+        var cv = document.createElement("canvas");
+        cv.width = cw; cv.height = ch;
+        cv.getContext("2d").drawImage(img, 0, 0, cw, ch);
+        data = cv.toDataURL("image/jpeg", q);
+        try { localStorage.setItem("rrs_wall", data); break; } catch(e){ data = ""; }
+        max = Math.round(max * 0.75);
+        q = Math.max(0.5, q - 0.08);
+      }
+      if (!data){ toast("图片太大，无法保存"); return; }
+      uiCfg.wall = true; saveUiCfg(); applyWall(); sampleWallHue();
+      if ($("cfg_wall")) $("cfg_wall").checked = true;
+      toast("壁纸已更新");
+    };
+    img.onerror = function(){ toast("图片读取失败"); };
+    img.src = fr.result;
+  };
+  fr.readAsDataURL(file);
+}
+
+var curSmartTiers = [];       // 档位（smart_tiers）：选 1 个 = 固定，选多个 = 动态
+var effTiersCache = [];       // 本机当前生效档位（smart_tiers 留空时回填格子）
+
+function defaultTiersText(){
+  if (!deviceTiers) return "";
+  return deviceTiers.top + " → " + deviceTiers.mid + " → " + deviceTiers.low;
+}
+function renderGlobalRates(){
+  var box = $("globalRates");
+  if (!box) return;
+  var rates = rateList();
+  var html = "";
+  rates.forEach(function(v){
+    var on = curSmartTiers.indexOf(v) >= 0;
+    html += '<button data-v="' + v + '" class="' + (on ? "on" : "") + '">' + v + ' Hz</button>';
+  });
+  var onAuto = curSmartTiers.indexOf("auto") >= 0;
+  html += '<button data-v="auto" class="' + (onAuto ? "on" : "") + '">自适应</button>';
+  box.innerHTML = html;
+  Array.prototype.forEach.call(box.querySelectorAll("button"), function(b){
+    b.addEventListener("click", function(){
+      var raw = b.getAttribute("data-v");
+      var v = (raw === "auto") ? "auto" : parseInt(raw, 10);
+      var i = curSmartTiers.indexOf(v);
+      if (i >= 0) curSmartTiers.splice(i, 1); else curSmartTiers.push(v);
+      curSmartTiers.sort(function(a,c){
+        if (a === "auto") return 1;
+        if (c === "auto") return -1;
+        return c - a;
+      });
+      renderGlobalRates();
+      saveSmartTiers();
+    });
+  });
+  if (!curSmartTiers.length){
+    $("globalTierCap").textContent = "档位：未指定（系统动态，模块不干预；勾选档位后由模块接管）";
+  } else {
+    $("globalTierCap").textContent = "档位（单选 = 固定，多选 = 动态）当前：" + curSmartTiers.join(" → ");
+  }
+}
+async function saveSmartTiers(){
+  await clearSysDefault();
+  var r = await exec("cat " + shq(CFG) + " 2>/dev/null");
+  var lines = (r.stdout || "").split(/\r?\n/);
+  lines = setCfgKey(lines, "smart_tiers", curSmartTiers.join(","));
+  var w = await exec("echo " + b64(lines.join("\n")) + " | base64 -d > " + shq(CFG) + " && chmod 644 " + shq(CFG));
+  if (w.errno === 0) toast("动态档位：" + (curSmartTiers.join(" → ") || "自动"));
+  else toast("保存失败");
+}
+
+async function loadCfg(){
+  var r = await exec("cat " + shq(CFG) + " 2>/dev/null");
+  var m = parseCfg(r.stdout || "");
+  curSmartTiers = (m.smart_tiers || "").split(",").map(function(x){
+    x = (x || "").trim();
+    if (x === "auto" || x === "自适应") return "auto";
+    var n = parseInt(x, 10);
+    return n > 0 ? n : null;
+  }).filter(function(x){ return x !== null; });
+  renderGlobalRates();
+  cfgCap = parseInt(m.fps_cap, 10) || 0;
+  $("cfg_cap").value = m.fps_cap || "0";
+  var bl = parseInt(m.bright_low, 10);
+  if (isNaN(bl)) bl = 8;
+  if (bl > 100) bl = 100;
+  $("cfg_bright_low").value = String(bl);
+  $("brightLowVal").textContent = bl + "%";
+  brightLowDyn = (m.bright_low_mode || "lock") === "dyn";
+  animBoost = (m.anim_boost === "ladder") ? "ladder" : "cap";
+  if ($("animBoostVal")) $("animBoostVal").textContent = animBoost === "ladder" ? "档位最高刷新率" : "本机最高刷新率";
+  renderBrightCap(parseInt(m.bright_low_cap, 10) || 0);
+  $("cfg_delays").value = m.smart_delays || "";
+  gameFps = m.game_fps || "top";
+  $("cfgGameVal").textContent = gameFpsText(gameFps);
+  $("cfg_log").checked = (m.log || "0") === "1";
+  var trn = m.thp_report_rate_normal || "";
+  var trg = m.thp_report_rate_game || "";
+  thpN = (trn || "off").trim();
+  thpG = (trg || "off").trim();
+  if ($("thpNVal")) $("thpNVal").textContent = thpN === "off" ? "off" : thpN;
+  if ($("thpGVal")) $("thpGVal").textContent = thpG === "off" ? "off" : thpG;
+  function thpShow(v){ return (v && v !== "off") ? v : "off"; }
+  if ($("thpN")) $("thpN").textContent = thpShow(thpN);
+  if ($("thpG")) $("thpG").textContent = thpShow(thpG);
+  loadThpMax().then(function(mx){ if ($("thpMax")) $("thpMax").textContent = mx > 0 ? (mx + " Hz") : "-"; });
+  offFps = parseInt(m.aod_fps, 10) || 1;
+  var ar = await exec("getprop ro.vendor.mi_sf.aod_mode_ddic_refresh_rate 2>/dev/null");
+  var av = parseInt((ar.stdout || "").trim(), 10);
+  aodActual = (av === 1 || av === 30) ? av : offFps;
+  $("cfgOffVal").textContent = offFpsRowText();
+  if ($("aodVal")) $("aodVal").textContent = offFpsRowText();
+}
+async function saveCfg(){
+  await clearSysDefault();
+  var r = await exec("cat " + shq(CFG) + " 2>/dev/null");
+  var mOld = parseCfg(r.stdout || "");
+  var sampOld = ((mOld.thp_report_rate_normal || "off") + "").trim();
+  var sampGOld = ((mOld.thp_report_rate_game || "off") + "").trim();
+  var lines = (r.stdout || "").split(/\r?\n/);
+  lines = setCfgKey(lines, "fps_cap", String(parseInt($("cfg_cap").value, 10) || 0));
+  lines = setCfgKey(lines, "smart_delays", $("cfg_delays").value.trim());
+  lines = setCfgKey(lines, "bright_low", String(parseInt($("cfg_bright_low").value, 10) || 0));
+  lines = setCfgKey(lines, "bright_low_cap", String(brightCapSel || 0));
+  lines = setCfgKey(lines, "bright_low_mode", brightLowDyn ? "dyn" : "lock");
+  lines = setCfgKey(lines, "anim_boost", animBoost);
+  lines = setCfgKey(lines, "log", $("cfg_log").checked ? "1" : "0");
+  lines = lines.filter(function(l){ return !/^\s*(sampling|sampling_game)\s*=/.test(l); });
+  lines = setCfgKey(lines, "thp_report_rate_normal", thpN || "off");
+  lines = setCfgKey(lines, "thp_report_rate_game", thpG || "off");
+  var w = await exec("echo " + b64(lines.join("\n")) + " | base64 -d > " + shq(CFG) + " && chmod 644 " + shq(CFG));
+  if (w.errno === 0){
+    cfgCap = parseInt($("cfg_cap").value, 10) || 0;
+    var sampNew = thpN || "off";
+    var sampGNew = thpG || "off";
+    var fw = false;
+    if (sampNew !== sampOld || sampGNew !== sampGOld)
+      fw = await applyFwRates(sampNew, sampGNew);   /* 只在采样率改动时写固件 */
+    toast(fw ? "已保存（采样率已写入固件，重启后生效）" : "已保存，daemon 热重载中…");
+    setTimeout(refreshStatus, 900);
+  }
+  else toast("保存失败：" + (w.stderr || w.errno));
+}
+async function loadGl(){
+  var r = await exec("cat " + shq(GL) + " 2>/dev/null");
+  if (!(r.stdout || "").trim()){
+    /* 旧机型/首次升级：回退读 GameList */
+    r = await exec("cat " + shq("/data/adb/RRS/GameList") + " 2>/dev/null");
+  }
+  glState = parseGameList(r.stdout || "");
+  /* 自愈：带刷新率且被识别为游戏的条目，重写时归到游戏段并补 game 标记 */
+  var needFix = false;
+  glState.entries.forEach(function(e){ if (e.fps && !e.game && autoGames[e.pkg]) needFix = true; });
+  if (needFix) saveGl();
+}
+async function saveGl(){
+  await clearSysDefault();
+  var w = await exec("echo " + b64(buildGameList()) + " | base64 -d > " + shq(GL) + " && chmod 644 " + shq(GL));
+  if (w.errno === 0){ toast("AppList 已保存"); }
+  else toast("保存失败：" + (w.stderr || w.errno));
+}
+var restartBusy = false;
+var FW_DIR = "/data/adb/modules/RRS/odm/firmware";
+function parseFwVal(v){
+  v = String(v || "").trim();
+  if (/^\d+$/.test(v)) return { ic: parseInt(v, 10), rate: parseInt(v, 10) };
+  return null;
+}
+async function applyFwRates(normal, game){
+
+  var nv = parseFwVal(normal), gv = parseFwVal(game);
+  if (!nv && !gv) return false;
+  var tool = MOD + "/tools/thp_repack";
+  var cmd = "M=" + shq(FW_DIR) + "; mkdir -p \"$M\"; " +
+    "for f in /odm/firmware/*thp_config.ini; do [ -f \"$f\" ] || continue; b=$(basename \"$f\"); " +
+    "cp -f \"$f\" \"$M/$b\"; " +
+    (nv ? "sed -i -E \"s/^([[:space:]]*ic_rate_normal=).*/\\1" + nv.ic + "/; s/^([[:space:]]*rate_normal=).*/\\1" + nv.rate + "/\" \"$M/$b\"; " : "") +
+    (gv ? "sed -i -E \"s/^([[:space:]]*ic_rate_game=).*/\\1" + gv.ic + "/; s/^([[:space:]]*rate_game=).*/\\1" + gv.rate + "/\" \"$M/$b\"; " : "") +
+    "done; " +
+    "T=" + shq(tool) + "; [ -x \"$T\" ] || chmod 755 \"$T\" 2>/dev/null; " +
+    "for f in /odm/firmware/*thp_config.cfg; do [ -f \"$f\" ] || continue; b=$(basename \"$f\"); " +
+    "\"$T\" \"$f\" \"$M/$b\" " + (nv ? nv.rate : gv.rate) + " >/dev/null 2>&1; " +
+    "[ -s \"$M/$b\" ] || { rm -f \"$M/$b\"; continue; }; " +
+    shq(tool.replace("thp_repack", "thp_dump")) + " \"$M/$b\" 2>/dev/null | grep -qE 'rate_(normal|game)=' || rm -f \"$M/$b\"; done; " +
+    "chmod 644 \"$M\"/* 2>/dev/null; chcon u:object_r:vendor_file:s0 \"$M\"/* 2>/dev/null; " +
+    "for f in \"$M\"/*; do [ -f \"$f\" ] || continue; ls -Z \"$f\" | grep -q vendor_file || rm -f \"$f\"; done; " +
+    "echo FILES=$(ls \"$M\"/*thp_config.* 2>/dev/null | wc -l)";
+  var r = await exec(cmd);
+  var nfiles = parseInt(((r.stdout || "").match(/FILES=([0-9]+)/) || [])[1] || "0", 10);
+  return nfiles > 0;
+}
+
+var modalKind = "log";
+async function showThp(){
+  var keys = "ic_rate_normal|rate_normal|rate_default|ic_rate_game|rate_game|ic_rate_game_super|rate_game_super";
+  var dump = shq(MOD + "/tools/thp_dump");
+  var cmd = "K='" + keys + "'; " +
+    "for f in " + FW_DIR + "/*thp_config.ini /odm/firmware/*thp_config.ini; do " +
+    "[ -f \"$f\" ] || continue; echo \"== $f\"; " +
+    "grep -E \"^[[:space:]]*($K)=\" \"$f\"; done; " +
+    "for f in " + FW_DIR + "/*thp_config.cfg /odm/firmware/*thp_config.cfg; do " +
+    "[ -f \"$f\" ] || continue; echo \"== $f（已解密）\"; " +
+    dump + " \"$f\" 2>/dev/null | grep -E \"^[[:space:]]*($K)=\"; done; true";
+  var r = await exec(cmd);
+  $("mTitle").textContent = "thp 配置（修改后重启生效）";
+  modalKind = "thp";
+  $("mDel").textContent = "还原";
+  $("mBody").textContent = (r.stdout || "").trim() || "（没有找到 thp 配置：模块 odm 与 /odm 都没有）";
+  $("modal").classList.add("show");
+}
+async function showLog(){
+  $("mTitle").textContent = "daemon 日志";
+  modalKind = "log";
+  $("mDel").textContent = "删除";
+  var r = await exec("tail -n 200 " + shq("/data/adb/RRS/rrs.log") + " 2>/dev/null || echo '（没有日志。可在配置里打开 log=1）'");
+  $("mBody").textContent = r.stdout || "（空）";
+  $("modal").classList.add("show");
+}
+async function resetCfg(){
+  var r = await exec("cp -f " + shq(MOD + "/config.example") + " " + shq(CFG) + " && chmod 644 " + shq(CFG));
+  if (r.errno === 0){ toast("已恢复默认配置"); loadCfg(); setTimeout(refreshStatus, 900); }
+  else toast("恢复失败");
+}
+async function loadVersion(){
+  var r = await exec("grep '^version=' " + shq(MOD + "/module.prop") + " 2>/dev/null | cut -d= -f2");
+  $("ver").textContent = (r.stdout || "").trim() || "-";
+}
+
+/* ---------- 导航 ---------- */
+function showTab(name){
+  var titles = { home: "全局/动态高刷", tools: "刷新率控制", settings: "设置" };
+  $("pageTitle").textContent = titles[name] || "全局/动态高刷";
+  document.querySelectorAll(".view").forEach(function(v){ v.classList.remove("on"); });
+  $("view" + name.charAt(0).toUpperCase() + name.slice(1)).classList.add("on");
+  document.querySelectorAll(".tabbar button").forEach(function(b){ b.className = b.dataset.tab === name ? "on" : ""; });
+  if (name === "tools" && !appsLoaded){ loadApps().then(renderApps); }
+  if (name === "home"){ refreshStatus(true); }
+  window.scrollTo(0, 0);
+}
+
+/* ---------- 事件 ---------- */
+function syncLiquidRow(){
+  var inp = $("cfg_liquid");
+  if (!inp) return;
+  var on = !!uiCfg.floatBar;
+  var row = inp.closest ? inp.closest(".row") : null;
+  if (row) row.style.display = on ? "" : "none";   /* 悬浮底栏关闭时整行收起 */
+}
+function bind(){
+  $("btnTheme").addEventListener("click", cycleTheme);
+  if ($("btnSysDefault")) $("btnSysDefault").addEventListener("click", restoreSysDefault);
+  if ($("btnImportSys")) $("btnImportSys").addEventListener("click", importSysDefaults);
+  document.querySelectorAll("#themeSeg button").forEach(function(b){
+    b.addEventListener("click", function(){ setTheme(b.dataset.theme); toast(b.textContent); });
+  });
+  document.querySelectorAll("#accents .sw").forEach(function(b){
+    b.addEventListener("click", function(){ uiCfg.accent = b.dataset.accent; applyTheme(); saveUiCfg(); toast("强调色：" + b.dataset.accent); });
+  });
+  $("cfg_monet").addEventListener("change", function(){ uiCfg.monet = this.checked; applyTheme(); saveUiCfg(); });
+  $("cfg_blur").addEventListener("input", function(){ uiCfg.blur = +this.value; applyTheme(); });
+  $("cfg_blur").addEventListener("change", function(){ saveUiCfg(); });
+  $("cfg_float").addEventListener("change", function(){ uiCfg.floatBar = this.checked; syncLiquidRow(); applyTheme(); saveUiCfg(); });
+  $("cfg_style").addEventListener("change", function(){ uiCfg.style = this.value; applyTheme(); saveUiCfg(); });
+  $("cfg_spec").addEventListener("change", function(){ uiCfg.spec = this.value; applyTheme(); saveUiCfg(); });
+  if ($("cfg_float")) $("cfg_float").addEventListener("change", syncLiquidRow);
+  syncLiquidRow();
+  $("cfg_liquid").addEventListener("change", function(){ uiCfg.liquid = this.checked; applyTheme(); saveUiCfg(); });
+  $("cfg_opacity").addEventListener("input", function(){
+    var v = parseInt(this.value, 10);
+    uiCfg.opacity = isNaN(v) ? 100 : v;
+    applyOpacity();
+  });
+  $("cfg_opacity").addEventListener("change", function(){ saveUiCfg(); });
+  if ($("rowScale")) $("rowScale").addEventListener("click", function(){
+  dlgLockSwitch(false);
+    $("dlgTitle").textContent = "界面缩放";
+    $("dlgSub").textContent = "调整 WebUI 整体缩放比例";
+    $("dlgIcon").style.display = "none";
+    $("dlgRates").style.display = "none";
+    var box = $("dlgOpts");
+    box.style.display = "";
+    box.innerHTML = "";
+    [90, 100, 110, 120].forEach(function(v){
+      var div = document.createElement("div");
+      div.className = "opt";
+      div.innerHTML = '<span class="o-ic">◐</span><span>' + v + '%</span>' +
+        ((uiCfg.scale || 100) === v ? '<span class="o-cur">当前</span>' : '');
+      div.addEventListener("click", function(){
+        uiCfg.scale = v;
+        $("dlg").style.display = "none";
+        if ($("scaleVal")) $("scaleVal").textContent = v + "%";
+        applyTheme(); saveUiCfg();
+      });
+      box.appendChild(div);
+    });
+    $("dlg").style.display = "flex";
+  });
+  $("cfg_wall").addEventListener("change", function(){
+    if (this.checked && !localStorage.getItem("rrs_wall")){
+      this.checked = false; uiCfg.wall = false; toast("请先更换壁纸"); return;
+    }
+    uiCfg.wall = this.checked; applyWall(); saveUiCfg();
+  });
+  $("cfg_wallblur").addEventListener("input", function(){
+    uiCfg.wallBlur = parseInt(this.value, 10) || 0;
+    applyWall();
+  });
+  $("cfg_wallblur").addEventListener("change", function(){ saveUiCfg(); });
+  $("rowWallPick").addEventListener("click", function(){ $("wallFile").click(); });
+  $("wallFile").addEventListener("change", function(){ var f = this.files && this.files[0]; setWallFile(f); this.value = ""; });
+  $("rowWallReset").addEventListener("click", function(){
+    localStorage.removeItem("rrs_wall"); uiCfg.wall = false;
+    if ($("cfg_wall")) $("cfg_wall").checked = false;
+    applyWall(); saveUiCfg(); toast("已恢复默认壁纸");
+  });
+  document.querySelectorAll(".tabbar button").forEach(function(b){
+    b.addEventListener("click", function(){ showTab(b.dataset.tab); });
+  });
+  document.querySelectorAll("#catSeg button").forEach(function(b){
+    b.addEventListener("click", function(){
+      appFilter = b.dataset.cat;
+      document.querySelectorAll("#catSeg button").forEach(function(x){ x.className = x.dataset.cat === appFilter ? "on" : ""; });
+      renderApps();
+    });
+  });
+  $("appSearch").addEventListener("input", function(){ appQuery = this.value; renderApps(); });
+  $("rowThpN").addEventListener("click", function(){ openThpDlg(0); });
+  $("rowThpG").addEventListener("click", function(){ openThpDlg(1); });
+  $("rowOffFps").addEventListener("click", openOffFpsDlg);
+  $("rowGameFps").addEventListener("click", openGameFpsDlg);
+  $("btnSel").addEventListener("click", function(){ setSelMode(!selMode); });
+  $("rowApps").addEventListener("click", function(){ showTab("tools"); });
+  $("rowLog").addEventListener("click", showLog);
+  $("rowThp").addEventListener("click", showThp);
+  if ($("rowBrightCap")) $("rowBrightCap").addEventListener("click", openBrightCapDlg);
+  if ($("rowAnimBoost")) $("rowAnimBoost").addEventListener("click", openAnimBoostDlg);
+  $("btnSaveCfg").addEventListener("click", saveCfg);
+  $("cfg_bright_low").addEventListener("input", function(){
+    $("brightLowVal").textContent = this.value + "%";
+    toggleBrightCap();
+  });
+  ["cfg_cap", "cfg_delays", "cfg_bright_low", "cfg_log"].forEach(function(id){
+    $(id).addEventListener("change", saveCfg);
+  });
+  $("btnResetCfg").addEventListener("click", resetCfg);
+  $("dlgCancel").addEventListener("click", function(){ $("dlg").style.display = "none"; });
+  $("dlg").addEventListener("click", function(e){        /* 点空白处也能退出 */
+    if (e.target.id === "dlg") $("dlg").style.display = "none";
+  });
+  $("mClose").addEventListener("click", function(){ $("modal").classList.remove("show"); });
+  $("mDel").addEventListener("click", async function(){
+    if (modalKind === "thp"){
+      /* 还原 thp 配置：删掉模块 odm 覆盖（回原厂），采样率回到默认 240/off */
+      var cmd = "rm -rf " + shq(MOD + "/odm/firmware") + "; " +
+        "sed -i -E 's/^thp_report_rate_normal=.*/thp_report_rate_normal=240/; s/^thp_report_rate_game=.*/thp_report_rate_game=off/' " + shq(CFG);
+      var rr = await exec(cmd);
+      if (rr.errno === 0){
+        toast("已还原 thp 配置（重启后生效）");
+        setTimeout(showThp, 250);
+      } else toast("还原失败：" + (rr.stderr || rr.errno));
+      return;
+    }
+    var r = await exec("rm -f " + shq("/data/adb/RRS/rrs.log") + " " + shq("/data/adb/RRS/rrs.log.1"));
+    if (r.errno === 0){
+      $("mBody").textContent = "（日志已删除）";
+      toast("日志已删除");
+    } else {
+      toast("删除失败：" + (r.stderr || r.errno));
+    }
+  });
+  $("modal").addEventListener("click", function(e){ if (e.target.id === "modal") $("modal").classList.remove("show"); });
+}
+
+var fpsTimer = null;
+async function loadSysDefaults(){
+  var r = await exec("cat " + shq("/data/adb/RRS/sys_defaults") + " 2>/dev/null");
+  var m = parseCfg(r.stdout || "");
+  var list = String(m.fps_list || "").split(",").filter(function(x){ return x && x !== "1"; });
+  var n60 = String(m.list60 || "").split(",").filter(Boolean).length;
+  var npriv = String(m.priv || "").split(",").filter(Boolean).length;
+  var ntop = String(m.top || "").split(",").filter(Boolean).length;
+  if ($("sysDefInfo")) $("sysDefInfo").textContent =
+    "系统名单：60Hz 清单 " + n60 + " 个 · 游戏档 " + npriv + " 个 · 热门游戏 " + ntop + " 个";
+}
+async function clearSysDefault(){
+  await exec("C=" + shq(CFG) + "; [ -f \"$C\" ] && grep -q '^sys_default=' \"$C\" && sed -i 's/^sys_default=.*/sys_default=0/' \"$C\" || true");
+}
+async function sysDefaultEntries(){
+  var sd = await exec("cat /data/adb/RRS/sys_defaults 2>/dev/null");
+  var m = parseCfg(sd.stdout || "");
+  await loadApps();
+  var label = {};
+  allApps.forEach(function(a){ label[a.pkg] = a.label; });
+  var seen = {}, entries = [];
+  function nameOf(p){
+    var l = label[p];
+    return (l && l !== p) ? l : "";   /* 没安装/没有名字：只写包名 */
+  }
+  function addApp(list){
+    String(list || "").split(",").forEach(function(p){
+      p = p.trim();
+      if (!p || seen[p]) return;
+      seen[p] = 1;
+      entries.push({ pkg: p, name: nameOf(p), fps: "60", game: false });
+    });
+  }
+  function addGame(p, rate){
+    p = (p || "").trim();
+    if (!p || seen[p]) return;
+    seen[p] = 1;
+    var e = { pkg: p, name: nameOf(p), game: true };
+    if (rate) e.fps = String(rate);
+    entries.push(e);
+  }
+  addApp(m.list60);
+  addApp(m.smart60);
+  String(m.priv || "").split(",").forEach(function(kv){
+    var a = kv.split(":");
+    if (a.length === 2 && a[0] && a[1]) addGame(a[0], a[1]);
+  });
+  String(m.top || "").split(",").forEach(function(p){ addGame(p, ""); });
+  String(m.optimize || "").split(",").forEach(function(p){ addGame(p, ""); });
+  return entries;
+}
+
+async function importSysDefaults(){
+  await exec("sh " + shq(MOD + "/tools/gen_sys_defaults.sh") + " >/dev/null 2>&1");
+  var entries = await sysDefaultEntries();
+  glState.entries = entries;
+  await saveGl();
+  var r = await exec("cat " + shq(CFG) + " 2>/dev/null");
+  var lines = (r.stdout || "").split(/\r?\n/);
+  lines = setCfgKey(lines, "auto_gamelist", "0");
+  await exec("echo " + b64(lines.join("\n")) + " | base64 -d > " + shq(CFG) + " && chmod 644 " + shq(CFG));
+  renderApps();
+  loadCfg();
+  toast("已导入系统默认：游戏 " + entries.filter(function(e){ return e.game; }).length +
+        " 个，应用 " + entries.filter(function(e){ return !e.game; }).length + " 个");
+}
+
+async function restoreSysDefault(){
+  await importSysDefaults();
+  var sd = await exec("cat /data/adb/RRS/sys_defaults 2>/dev/null");
+  var m = parseCfg(sd.stdout || "");
+  var max = parseInt(m.max_fps, 10) || 0;
+  var r = await exec("cat " + shq(CFG) + " 2>/dev/null");
+  var lines = (r.stdout || "").split(/\r?\n/);
+  lines = setCfgKey(lines, "fps_cap", String(max));
+  lines = setCfgKey(lines, "smart_tiers", "");
+  lines = setCfgKey(lines, "game_fps", "dyn");
+  lines = setCfgKey(lines, "sys_default", "1");
+  var w = await exec("echo " + b64(lines.join("\n")) + " | base64 -d > " + shq(CFG) + " && chmod 644 " + shq(CFG));
+  if (w.errno !== 0){ toast("配置写入失败"); return; }
+  toast("已切到系统默认策略：模块停止接管（KSU 模块需重启一次才完全交还系统动态）");
+  curSmartTiers = [];
+  loadSysDefaults(); loadCfg(); setTimeout(refreshStatus, 800);
+}
+
+async function init(){
+  await loadUiCfg();
+  applyTheme();
+  sampleWallHue();
+  bind();
+  await loadVersion();
+  if (fpsTimer) clearInterval(fpsTimer);
+  fpsTimer = setInterval(function(){
+    var v = $("viewHome");
+    if (v && v.classList.contains("on")) refreshFpsOnly();
+  }, 1000);
+  await refreshStatus(true);
+  await loadCfg();
+  await loadGl();
+  loadSysDefaults();
+  (async function(){ await loadApps(); renderApps(); })();
+  if (!ksuOk()) toast("未检测到 KernelSU WebUI 桥，页面只能显示");
+}
+document.addEventListener("DOMContentLoaded", init);
+</script>
+</body>
+</html>

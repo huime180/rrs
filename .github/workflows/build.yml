@@ -1,0 +1,96 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      ZIG_VERSION: 0.15.2
+      DAEMON: module/system/bin/RRS_Daemon
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install zig
+        run: |
+          set -euo pipefail
+          url="https://ziglang.org/download/${ZIG_VERSION}/zig-x86_64-linux-${ZIG_VERSION}.tar.xz"
+          curl -fsSL -o /tmp/zig.tar.xz "$url"
+          mkdir -p "$RUNNER_TEMP/zig"
+          tar -xJf /tmp/zig.tar.xz -C "$RUNNER_TEMP/zig" --strip-components=1
+          echo "$RUNNER_TEMP/zig" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/zig/zig" version
+
+      - name: Check module scripts
+        run: |
+          set -euo pipefail
+          for f in module/*.sh; do sh -n "$f"; done
+
+      - name: Build daemon from C source
+        run: |
+          set -euo pipefail
+          test -f src/rrs_daemon_adaptive.c
+          if [ -e "$DAEMON" ]; then
+            echo "Prebuilt daemon must not be committed: $DAEMON" >&2
+            exit 1
+          fi
+          export ZIG="$RUNNER_TEMP/zig/zig"
+          "$ZIG" version
+          ./build.sh
+          test -x "$DAEMON"
+          file "$DAEMON"
+          readelf -h "$DAEMON" | grep -q 'Machine:.*AArch64' || {
+            echo "$DAEMON is not aarch64" >&2
+            exit 1
+          }
+          if readelf -l "$DAEMON" | grep -q INTERP; then
+            echo "$DAEMON is not statically linked" >&2
+            exit 1
+          fi
+          sha256sum "$DAEMON"
+          ls -l dist
+
+      - name: Check tag version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          set -euo pipefail
+          V=$(sed -n 's/^version=//p' module/module.prop | head -n1)
+          [ "v$V" = "$GITHUB_REF_NAME" ] || {
+            echo "Tag $GITHUB_REF_NAME does not match module.prop v$V" >&2
+            exit 1
+          }
+
+      - name: Upload daemon
+        uses: actions/upload-artifact@v4
+        with:
+          name: rrs-daemon-aarch64
+          path: module/system/bin/RRS_Daemon
+          if-no-files-found: error
+
+      - name: Upload module
+        uses: actions/upload-artifact@v4
+        with:
+          name: rrs-module
+          path: dist/*.zip
+          if-no-files-found: error
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || \
+            gh release create "$GITHUB_REF_NAME" \
+              --title "RRS $GITHUB_REF_NAME" \
+              --notes-file changelog.md
+          gh release upload "$GITHUB_REF_NAME" dist/*.zip --clobber
