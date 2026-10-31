@@ -636,7 +636,7 @@ function parseGameList(text){
       var tok = toks[k];
       if (tok.indexOf("delays=") === 0) delays = tok.slice(7);
       else if (tok.indexOf("rate=") === 0) rate = tok.slice(5);
-      else if (/^\d+(,\d+)*$/.test(tok)) fps = tok;
+      else if (/^(?:\d+|auto|自适应)(?:,(?:\d+|auto|自适应))*$/i.test(tok)) fps = tok;
       else if (/^(top|off)$/i.test(tok)) fps = tok.toLowerCase();
       else if (/^nogame$/i.test(tok)) nogame = true;
       else if (/^game$/i.test(tok)) game = true;
@@ -1418,7 +1418,14 @@ function fpsText(fps){
   if (fps === undefined || fps === null || fps === "") return "";
   if (fps === "top") return "最高";
   if (fps === "off") return "系统动态";
-  if (String(fps).indexOf(",") >= 0) return "动态 " + String(fps).split(",").join("/");
+  if (fps === "auto" || fps === "自适应") return "自适应";
+  if (String(fps).indexOf(",") >= 0){
+    var parts = String(fps).split(",").map(function(x){
+      x = String(x).trim();
+      return (x === "auto" || x === "自适应") ? "自适应" : x;
+    });
+    return "动态 " + parts.join("/");
+  }
   return fps + " Hz";
 }
 async function openAppRateDlg(pkg, name){
@@ -1635,8 +1642,9 @@ async function refreshStatus(full){
   var effTiers = effLine ? effLine[1].split("->").map(function(x){ return parseInt(x, 10); })
     .filter(function(x){ return x > 0; }) : [];
   effTiersCache = effTiers.slice();
-  var tierList = effTiers.length ? effTiers
-    : (deviceTiers ? [deviceTiers.top, deviceTiers.mid, deviceTiers.low] : []);
+  var tierList = curSmartTiers.length ? curSmartTiers
+    : (effTiers.length ? effTiers
+    : (deviceTiers ? [deviceTiers.top, deviceTiers.mid, deviceTiers.low] : []));
   $("tiers").textContent = tierList.length ? tierList.join(" → ") : "-";
   (function(){
     var set = {};
@@ -1738,6 +1746,12 @@ function renderGlobalRates(){
     $("globalTierCap").textContent = "档位：未指定（系统动态，模块不干预；勾选档位后由模块接管）";
   } else {
     $("globalTierCap").textContent = "档位（单选 = 固定，多选 = 动态）当前：" + curSmartTiers.join(" → ");
+  }
+  if ($("tiers")){
+    var tl = curSmartTiers.length ? curSmartTiers
+      : (effTiersCache.length ? effTiersCache
+      : (deviceTiers ? [deviceTiers.top, deviceTiers.mid, deviceTiers.low] : []));
+    $("tiers").textContent = tl.length ? tl.join(" → ") : "-";
   }
 }
 async function saveSmartTiers(){

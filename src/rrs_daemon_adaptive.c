@@ -121,16 +121,20 @@ static volatile int g_low_reapply;      /* 请求主循环立即重设档位/重
 static int g_low_want_cfg;             /* 进入低亮度时的配置上限值，用于判断配置是否改动 */
 static int g_fg_forced;                /* 当前前台应用锁定的帧率（0 = 未锁定） */
 #define TIER_AUTO (-1)                  /* 档位表里的「自适应」项 */
-static long long g_auto_next;           /* 自适应档下次重新评估时间 */
 static int g_orig_ntiers;               /* 配置生成的原始档位表（低亮度压缩前） */
 static int g_orig_tiers[8];
 static int g_orig_delays[8];
 static char cfg_smart_tiers[128];            /* 智能模式档位，逗号分隔，空=top/mid/low */
 static char cfg_smart_delays[128] = "1000,2000"; /* 每段停留 ms */
 static volatile long long g_anim_last;   /* 最近一次动画日志时间 */
-static volatile int g_anim_on;
-static int g_anim_saved_fps;   /* 动画前应用单独锁定的帧率，0=无 */
-static long long g_anim_restore_due;  /* 加速保持时间 */
+static volatile int g_anim_on;           /* 动画加速进行中 */
+static int g_anim_saved_fps;             /* 动画前刷新率，0=未知 */
+static int g_anim_saved_state = -1;      /* 动画前全局档位 */
+static int g_anim_saved_app_state = -1;  /* 动画前应用档位 */
+static int g_anim_saved_forced;          /* 动画时的 cur_forced */
+static int g_anim_saved_dynamic;         /* 动画时是否多档 */
+static volatile long long g_touch_last;  /* 最近一次触摸时间 */
+static long long g_anim_start;           /* 本次动画加速开始时间 */
 #ifdef RRS_LEGACY_1035
 #define g_no_tiers 0
 #else
@@ -157,7 +161,6 @@ static int g_ignore_touch = 0;          /* 调试：忽略触摸事件，便于�
 static int cfg_log = 0;                 /* 默认关闭；1=写日志 */
 
 static int g_touch_contact_cap;        /* 0=无接触事件（退化为任意事件即触摸）1=有 */
-static int g_state_known(int state) { return state >= 0; }
 static int cfg_auto_gamelist = 1;       /* 启动时自动生成本机游戏列表 */
 static char cfg_game_fps[16] = "top";   /* 游戏刷新率策略：off(默认)/top/smart/数值 */
 
@@ -587,54 +590,6 @@ static void settings_delete(const char *ns, const char *key)
 
 #ifndef RRS_LEGACY_1035
 /* ===================== 刷新率（系统设置） ===================== */
-
-static char g_stock_min[8], g_stock_peak[8], g_stock_user[8], g_stock_miui[8];
-static int g_stock_ready;
-
-/* 首次接管前记录系统原值；重启后优先复用快照，避免把上次的固定值当成原值 */
-static void stock_capture(void)
-{
-    if (g_stock_ready)
-        return;
-    g_stock_ready = 1;
-    g_stock_min[0] = g_stock_peak[0] = g_stock_user[0] = g_stock_miui[0] = '\0';
-    FILE *fp = fopen("/data/adb/RRS/stock", "r");
-    if (fp != NULL) {
-        char line[64];
-        while (fgets(line, sizeof line, fp) != NULL) {
-            char *nl = strpbrk(line, "\r\n");
-            if (nl != NULL)
-                *nl = '\0';
-            char *eq = strchr(line, '=');
-            if (eq == NULL)
-                continue;
-            *eq = '\0';
-            const char *v = eq + 1;
-            if (strcmp(line, "min") == 0) snprintf(g_stock_min, sizeof g_stock_min, "%s", v);
-            else if (strcmp(line, "peak") == 0) snprintf(g_stock_peak, sizeof g_stock_peak, "%s", v);
-            else if (strcmp(line, "user") == 0) snprintf(g_stock_user, sizeof g_stock_user, "%s", v);
-            else if (strcmp(line, "miui") == 0) snprintf(g_stock_miui, sizeof g_stock_miui, "%s", v);
-        }
-        fclose(fp);
-        return;
-    }
-    settings_get("system", "min_refresh_rate", g_stock_min, sizeof g_stock_min);
-    settings_get("system", "peak_refresh_rate", g_stock_peak, sizeof g_stock_peak);
-    settings_get("secure", "user_refresh_rate", g_stock_user, sizeof g_stock_user);
-    settings_get("secure", "miui_refresh_rate", g_stock_miui, sizeof g_stock_miui);
-    if (!g_dryrun) {
-        fp = fopen("/data/adb/RRS/stock", "w");
-        if (fp != NULL) {
-            fprintf(fp, "min=%s\npeak=%s\nuser=%s\nmiui=%s\n",
-                    g_stock_min, g_stock_peak, g_stock_user, g_stock_miui);
-            fclose(fp);
-        }
-        char buf[64];
-        snprintf(buf, sizeof buf, "%s,%s,%s,%s",
-                 g_stock_min, g_stock_peak, g_stock_user, g_stock_miui);
-        settings_put("system", "rrs_stock", buf);
-    }
-}
 
 static void settings_apply_rate(int fps)
 {
@@ -1235,19 +1190,6 @@ static int read_bright_pct(void)
             return v > 255 ? (v * 100 + 2047) / 4095 : (v * 100 + 127) / 255;
     }
     return -1;
-}
-
-/* 系统亮度滑块原始值（0－255，与设置里的 screen_brightness 同刻度） */
-static int read_bright_raw(void)
-{
-    char sb[16];
-    if (settings_get("system", "screen_brightness", sb, sizeof sb)) {
-        int v = atoi(sb);
-        if (v >= 0)
-            return v;
-    }
-    int pct = read_bright_pct();
-    return pct >= 0 ? pct * 255 / 100 : -1;
 }
 
 static int apply_fps(int fps, int force)
@@ -2440,14 +2382,27 @@ static void ext_cfg_for(const char *pkg, int *delays, int *ndelays, char *rate, 
     pthread_mutex_unlock(&g_ext_lock);
 }
 
-/* 应用多档的第 idx 段停留：应用自己配了就用它，否则用全局 smart_delays */
+/* 应用多档的第 idx 段停留：应用自己配了就用它，否则从全局 smart_delays 尾部对齐取 */
 static int app_delay(int idx)
 {
     if (idx < 0)
         return 1000;
-    if (g_fg_ndelays > 0 && idx < g_fg_ndelays)
-        return g_fg_delays[idx];
-    return (idx < APP_TIERS_MAX) ? g_delays[idx] : g_delays[APP_TIERS_MAX - 1];
+    if (g_fg_ndelays > 0) {
+        if (idx < g_fg_ndelays)
+            return g_fg_delays[idx];
+        return g_fg_delays[g_fg_ndelays - 1];
+    }
+    int nseg = g_fg_ntiers > 0 ? g_fg_ntiers - 1 : 0;   /* 应用档位需要的段数 */
+    if (nseg > 0 && g_ntiers > 1) {
+        int gseg = g_ntiers - 1;                        /* 全局实际段数 */
+        int off = gseg - nseg;                          /* 从全局尾部对齐 */
+        if (off >= 0 && off + idx < gseg)
+            return g_delays[off + idx];
+        if (idx < gseg)
+            return g_delays[idx];
+        return g_delays[gseg - 1];
+    }
+    return 1000;
 }
 
 /* ===================== GameList 自动生成 ===================== */
@@ -2491,14 +2446,39 @@ static int line_has_rate(const char *t)
          tok = strtok_r(NULL, " \t", &save), idx++) {
         if (idx == 0)
             continue;
-        if (strcasecmp(tok, "top") == 0 || strcasecmp(tok, "off") == 0)
+        if (strcasecmp(tok, "top") == 0 || strcasecmp(tok, "off") == 0 ||
+            strcasecmp(tok, "auto") == 0 || strcmp(tok, "自适应") == 0) {
             rate = 1;
-        else {
-            char *end = NULL;
-            strtol(tok, &end, 10);
-            if (end != NULL && *end == '\0' && end != tok)
-                rate = 1;
+            continue;
         }
+        if (strchr(tok, ',') != NULL) {
+            char lb[256];
+            snprintf(lb, sizeof lb, "%s", tok);
+            char *sv = NULL;
+            int any = 0, ok = 1;
+            for (char *p = strtok_r(lb, ",", &sv); p != NULL;
+                 p = strtok_r(NULL, ",", &sv)) {
+                if (strcasecmp(p, "auto") == 0 || strcmp(p, "自适应") == 0) {
+                    any = 1;
+                    continue;
+                }
+                char *end = NULL;
+                long v = strtol(p, &end, 10);
+                if (end == NULL || *end != '\0' || end == p || v <= 0) {
+                    ok = 0;
+                    break;
+                }
+                any = 1;
+            }
+            if (ok && any) {
+                rate = 1;
+                continue;
+            }
+        }
+        char *end = NULL;
+        strtol(tok, &end, 10);
+        if (end != NULL && *end == '\0' && end != tok)
+            rate = 1;
     }
     return rate;
 }
@@ -2529,9 +2509,8 @@ static void dedupe_applist(void)
         p = nl + 1;
     }
     char pkg[4096][128];
-    int first[4096], nf[4096], best[4096];
+    int nf[4096], best[4096];
     for (int i = 0; i < cnt; i++) {
-        first[i] = 0;
         nf[i] = 0;
         best[i] = i;
         pkg[i][0] = '\0';
@@ -2766,69 +2745,6 @@ static int run_dumpsys(const char *a, const char *b, char *out, size_t sz)
 }
 
 /* ---- 内容自适应档位 ---- */
-/* 从 gfxinfo framestats 估算当前前台应用的呈现帧率（视频 SurfaceView 可能测不到） */
-static int fps_from_gfxinfo(void)
-{
-    if (g_fg_pkg[0] == '\0')
-        return 0;
-    char *buf = malloc(1 << 20);
-    if (buf == NULL)
-        return 0;
-    if (run_cap((char *const[]){ "dumpsys", "gfxinfo", g_fg_pkg, "framestats", NULL },
-                buf, 1 << 20) != 0) {
-        free(buf);
-        return 0;
-    }
-    int idx = 18;   /* FrameCompleted */
-    char *h = strstr(buf, "Flags,FrameTimelineVsyncId");
-    if (h != NULL) {
-        int col = 0;
-        int found = 0;
-        for (char *q = h; *q && *q != '\n'; q++) {
-            if (strncmp(q, "FrameCompleted", 14) == 0) {
-                idx = col;
-                found = 1;
-                break;
-            }
-            if (*q == ',')
-                col++;
-        }
-        if (!found)
-            idx = 18;
-    }
-    long long vals[256];
-    int n = 0;
-    char *p = h != NULL ? strchr(h, '\n') : NULL;
-    while (p != NULL && n < 256) {
-        p++;
-        if (!isdigit((unsigned char)*p))
-            break;
-        long long v = -1;
-        int col = 0;
-        for (char *q = p; *q && *q != '\n'; q++) {
-            if (col == idx) {
-                v = atoll(q);
-                break;
-            }
-            if (*q == ',')
-                col++;
-        }
-        if (v > 0)
-            vals[n++] = v;
-        p = strchr(p, '\n');
-    }
-    free(buf);
-    if (n < 5)
-        return 0;
-    long long span = vals[n - 1] - vals[0];
-    if (span <= 0)
-        return 0;
-    double fps = (double)(n - 1) * 1e9 / (double)span;
-    int r = (int)(fps + 0.5);
-    if (r < 1 || r > 300)
-        return 0;
-    return r;
-}
 
 
 #define AUTO_MAX_LAYERS 8
@@ -2841,8 +2757,6 @@ struct auto_snap {
 };
 static struct auto_snap g_auto_hist[AUTO_HIST];
 static int g_auto_hist_len;
-static int g_auto_cand_hz;
-static int g_auto_cand_hits;
 
 /* 把测量帧率按区间归到内容帧率档：30/45/60/72/90/120/144/165/185 */
 static int snap_content_fps(int f)
@@ -2885,13 +2799,14 @@ static int adaptive_refresh(int content)
 
 static int content_fps_detect(void)
 {
-    char *buf = malloc(1 << 20);
-    if (buf == NULL)
-        return -1;
-    if (run_cap((char *const[]){ "dumpsys", "SurfaceFlinger", NULL }, buf, 1 << 20) != 0) {
-        free(buf);
-        return -1;
+    static char *buf;
+    if (buf == NULL) {
+        buf = malloc(1 << 20);
+        if (buf == NULL)
+            return -1;
     }
+    if (run_cap((char *const[]){ "dumpsys", "SurfaceFlinger", NULL }, buf, 1 << 20) != 0)
+        return -1;
     int best = 0;
     const char *tag = "requestedFrameRate: {";
     const char *q = buf;
@@ -2936,9 +2851,8 @@ static int content_fps_detect(void)
         }
         line = nl ? nl + 1 : NULL;
     }
-    free(buf);
 
-    /* 用约 4 秒窗口（两次采样间隔）算各层帧率，取最大者 */
+    /* 用两次采样间隔的窗口算各层帧率（0.5 秒采样时约 1 秒），优先低帧层 */
     int measured = 0;
     int window_valid = 0;
     if (g_auto_hist_len > 0 && cur.n > 0) {
@@ -2948,9 +2862,11 @@ static int content_fps_detect(void)
             window_valid = 1;
             int low_fps = -1;
             int high_fps = -1;
+            int matched_layers = 0;
             for (int i = 0; i < cur.n; i++)
                 for (int j = 0; j < old->n; j++)
                     if (cur.id[i] == old->id[j]) {
+                        matched_layers = 1;
                         long long df = cur.frame[i] - old->frame[j];
                         if (df > 0) {
                             int r = (int)((double)df * 1000.0 / (double)dt + 0.5);
@@ -2963,7 +2879,9 @@ static int content_fps_detect(void)
                         }
                         break;
                     }
-            if (low_fps >= 0)
+            if (matched_layers == 0)
+                measured = -1;                     /* 切换视频/图层重建：本次不算样本 */
+            else if (low_fps >= 0)
                 measured = snap_content_fps(low_fps);
             else if (high_fps >= 0)
                 measured = snap_content_fps(high_fps);   /* 高帧内容同样参与统计 */
@@ -2979,20 +2897,21 @@ static int content_fps_detect(void)
 
     if (measured > 0)
         return measured;
-    if (window_valid)
-        return 0;    /* 窗口有效但没有任何新帧：内容静止/暂停 → 0fps */
-    if (best > 0)
-        return best;
+    if (window_valid) {
+        if (measured < 0)
+            return -1;   /* 图层集合变化：本次不算样本 */
+        return 0;        /* 窗口有效但没有任何新帧：内容静止/暂停 → 0fps */
+    }
     if (cur.n == 0)
-        return 0;
-    return -1;
+        return best > 0 ? best : 0;   /* 没有可跟踪的 SurfaceView 层时才用 requestedFrameRate 兜底 */
+    return -1;       /* 有层但窗口还不够：本次不算样本 */
 }
 
 #define AUTO_AVG_N 8
 static int g_auto_avg[AUTO_AVG_N];
 static int g_auto_avg_n;
 static int g_auto_avg_pos;
-static long long g_auto_sample_at;   /* 下一次采帧时间（1 秒间隔） */
+static long long g_auto_sample_at;   /* 下一次采帧时间（0.5 秒间隔） */
 
 static void auto_avg_reset(void)
 {
@@ -3040,8 +2959,8 @@ static int auto_avg_value(void)
 static int apply_auto_tier(int force)
 {
     int avg = auto_avg_value();
-    if (avg < 0 || g_auto_avg_n <= 0)
-        return 0;   /* 前档没有统计到低帧样本，保持现状 */
+    if (avg < 0 || g_auto_avg_n < 2)
+        return 0;   /* 至少 2 个有效样本才改档；不足时保持现状 */
     int hz = adaptive_refresh(snap_content_fps(avg));
     if (hz <= 0)
         return -1;
@@ -3551,12 +3470,17 @@ static void probe(void)
                g_modes[i].sf, g_modes[i].fw, g_modes[i].fps,
                g_modes[i].w, g_modes[i].h);
     printf("tiers: top=%d mid=%d low=%d\n", g_top, g_mid, g_low);
-    printf("dyn tiers:");
-    for (int i = 0; i < g_ntiers; i++)
-        printf(" %d%s", g_tiers[i], (i < g_ntiers - 1) ? " ->" : "");
-    printf("\n");
-    for (int i = 0; i < g_ntiers - 1; i++)
-        printf("  delay[%d -> %d] = %d ms\n", g_tiers[i], g_tiers[i+1], g_delays[i]);
+    {
+        char tstr[128];
+        tier_fmt(tstr, sizeof tstr, g_tiers, g_ntiers);
+        printf("dyn tiers: %s\n", tstr);
+    }
+    for (int i = 0; i < g_ntiers - 1; i++) {
+        int pair[2] = { g_tiers[i], g_tiers[i + 1] };
+        char tpair[32];
+        tier_fmt(tpair, sizeof tpair, pair, 2);
+        printf("  delay[%s] = %d ms\n", tpair, g_delays[i]);
+    }
 
     int af = 0, asf = -1;
     read_active(&af, &asf);
@@ -3741,7 +3665,6 @@ int main(int argc, char **argv)
     int smart = -1, state = -1, dirty = 1, hold = 0;
     long long cfg_due = 0;   /* config 重载防抖截止时间 */
     int cur_forced = 0;      /* 当前前台应用的单独刷新率（0=无） */
-    int last_custom = -1;
     time_t last_game = 0;
     long long next_down = 0;
 
@@ -3837,29 +3760,35 @@ int main(int argc, char **argv)
                 g_app_next_down = now_ms() + app_delay(0);
             } else if (g_app_state < g_fg_ntiers - 1 && g_app_next_down > 0 &&
                        now_ms() >= g_app_next_down) {
-                g_app_state++;
-                if (g_fg_tiers[g_app_state] == TIER_AUTO) {
-                    int f = content_fps_detect();
-                    if (f >= 0)
-                        auto_avg_push(f);
-                    int avg = auto_avg_value();
-                    if (avg >= 0) {
-                        int hz = adaptive_refresh(snap_content_fps(avg));
-                        if (hz > 0) {
-                            log_msg("app auto: mode %dfps -> %dHz", avg, hz);
-                            apply_fps(hz, 0);
-                        }
-                    }
+                int next = g_app_state + 1;
+                if (g_fg_tiers[next] == TIER_AUTO && g_auto_avg_n < 2) {
+                    /* 样本不足：停在当前档，等正常采样凑够 2 个再降 */
+                    g_app_next_down = 0;
                 } else {
-                    apply_fps(g_fg_tiers[g_app_state], 0);
-                    if (g_fg_ntiers >= 2 &&
-                        g_fg_tiers[g_fg_ntiers - 1] == TIER_AUTO &&
-                        g_app_state == g_fg_ntiers - 2)
-                        auto_avg_reset();   /* 落到应用的前一档，重新统计 */
+                    g_app_state++;
+                    if (g_fg_tiers[g_app_state] == TIER_AUTO) {
+                        int f = content_fps_detect();
+                        if (f >= 0)
+                            auto_avg_push(f);
+                        int avg = auto_avg_value();
+                        if (avg >= 0 && g_auto_avg_n >= 2) {
+                            int hz = adaptive_refresh(snap_content_fps(avg));
+                            if (hz > 0) {
+                                log_msg("app auto: mode %dfps -> %dHz", avg, hz);
+                                apply_fps(hz, 0);
+                            }
+                        }
+                    } else {
+                        apply_fps(g_fg_tiers[g_app_state], 0);
+                        if (g_fg_ntiers >= 2 &&
+                            g_fg_tiers[g_fg_ntiers - 1] == TIER_AUTO &&
+                            g_app_state == g_fg_ntiers - 2)
+                            auto_avg_reset();   /* 落到应用的前一档，重新统计 */
+                    }
+                    g_app_next_down = (g_app_state < g_fg_ntiers - 1)
+                                          ? now_ms() + app_delay(g_app_state)
+                                          : 0;
                 }
-                g_app_next_down = (g_app_state < g_fg_ntiers - 1)
-                                      ? now_ms() + app_delay(g_app_state)
-                                      : 0;
             }
         }
 
@@ -3915,20 +3844,26 @@ int main(int argc, char **argv)
 
         if (!g_no_tiers && cur_forced == 0 && smart == 1 &&
             state >= 0 && state < g_ntiers - 1 && next_down > 0 && now_ms() >= next_down) {
-            state++;
-            if (g_tiers[state] == TIER_AUTO) {
-                /* 落地前补采一次：120 档 2000ms 停留也能凑够 2 个样本 */
-                int f = content_fps_detect();
-                if (f >= 0)
-                    auto_avg_push(f);
-                apply_auto_tier(0);   /* 用前档统计好的低帧缓存值 */
+            int next = state + 1;
+            if (g_tiers[next] == TIER_AUTO && g_auto_avg_n < 2) {
+                /* 样本不足：停在当前档，等正常采样凑够 2 个再降 */
+                next_down = 0;
             } else {
-                if (g_ntiers >= 2 && state == g_ntiers - 2 &&
-                    g_tiers[g_ntiers - 1] == TIER_AUTO)
-                    auto_avg_reset();  /* 刚落到前一档：重新统计 */
-                tier_apply(state, 0);
+                state++;
+                if (g_tiers[state] == TIER_AUTO) {
+                    /* 落地前补采一次，样本不足时 apply_auto_tier 会保持现状 */
+                    int f = content_fps_detect();
+                    if (f >= 0)
+                        auto_avg_push(f);
+                    apply_auto_tier(0);   /* 用前档统计好的低帧缓存值 */
+                } else {
+                    if (g_ntiers >= 2 && state == g_ntiers - 2 &&
+                        g_tiers[g_ntiers - 1] == TIER_AUTO)
+                        auto_avg_reset();  /* 刚落到前一档：重新统计 */
+                    tier_apply(state, 0);
+                }
+                next_down = (state < g_ntiers - 1) ? now_ms() + g_delays[state] : 0;
             }
-            next_down = (state < g_ntiers - 1) ? now_ms() + g_delays[state] : 0;
         }
 
 
@@ -3939,7 +3874,6 @@ int main(int argc, char **argv)
              * 档位列表只有一个值时就等价于“固定”，多个值就是“动态”，不再区分模式。 */
             if (smart != 1) {
                 smart = 1;
-                last_custom = -1;
 #ifdef RRS_LEGACY_1035
                 repin_settings_if_needed();
                 {
@@ -3949,12 +3883,9 @@ int main(int argc, char **argv)
                     state = 0;
                     next_down = now_ms() + g_delays[0];
                     if (g_ntiers == 1 && g_tiers[0] == TIER_AUTO) {
-                        apply_fps(top_numeric_tier(), 1);   /* 固定自适应：先前档最高刷新率，统计 4 秒 */
-                        g_auto_next = now_ms() + 4000;
+                        apply_fps(top_numeric_tier(), 1);   /* 固定自适应：先升到前档最高刷新率 */
                     } else {
                         tier_apply(0, 0);
-                        if (g_tiers[0] == TIER_AUTO)
-                            g_auto_next = now_ms() + 2000;
                     }
                 }
 #else
@@ -3968,12 +3899,9 @@ int main(int argc, char **argv)
                     state = 0;
                     next_down = now_ms() + g_delays[0];
                     if (g_ntiers == 1 && g_tiers[0] == TIER_AUTO) {
-                        apply_fps(top_numeric_tier(), 1);   /* 固定自适应：先前档最高刷新率，统计 4 秒 */
-                        g_auto_next = now_ms() + 4000;
+                        apply_fps(top_numeric_tier(), 1);   /* 固定自适应：先升到前档最高刷新率 */
                     } else {
                         tier_apply(0, 0);
-                        if (g_tiers[0] == TIER_AUTO)
-                            g_auto_next = now_ms() + 2000;
                     }
                 }
 #endif
@@ -4006,45 +3934,76 @@ int main(int argc, char **argv)
             nfds++;
         }
 
-        /* 自适应缓存值：只在「自适应前一档」统计低帧（>60 丢弃），自适应档内不再采样 */
-        /* 自适应只在「前一档」统计，自适应档内不采样、不复判 */
+        /* 自适应统计：只在 AUTO 的前一档采样，0.5 秒一次，最近 4 个有效样本取众数 */
         {
-            int pre_ctx = 0;
+            int pre_global = 0, pre_app = 0;
             if (!g_no_tiers && smart == 1 && cur_forced == 0 &&
                 g_ntiers >= 2 && g_tiers[g_ntiers - 1] == TIER_AUTO &&
                 state == g_ntiers - 2)
-                pre_ctx = 1;
+                pre_global = 1;
             else if (cur_forced == -3 && g_fg_ntiers >= 2 &&
                      g_fg_tiers[g_fg_ntiers - 1] == TIER_AUTO &&
                      g_app_state == g_fg_ntiers - 2)
-                pre_ctx = 1;
-            if (pre_ctx) {
+                pre_app = 1;
+            if (pre_global || pre_app) {
                 static char auto_last_pkg[128];
                 if (strcmp(auto_last_pkg, g_fg_pkg) != 0) {
                     snprintf(auto_last_pkg, sizeof auto_last_pkg, "%s", g_fg_pkg);
                     auto_avg_reset();
                 }
                 if (g_auto_sample_at == 0)
-                    g_auto_sample_at = now_ms() + 1000;
+                    g_auto_sample_at = now_ms() + 500;
                 if (now_ms() >= g_auto_sample_at) {
-                    g_auto_sample_at = now_ms() + 1000;
+                    g_auto_sample_at = now_ms() + 500;
                     int f = content_fps_detect();
                     if (f >= 0)
                         auto_avg_push(f);
+                }
+                /* 攒够 2 个有效样本后，唤醒等待中的降档 */
+                if (g_auto_avg_n >= 2) {
+                    if (pre_global && next_down == 0)
+                        next_down = now_ms();
+                    if (pre_app && g_app_next_down == 0)
+                        g_app_next_down = now_ms();
                 }
             } else {
                 auto_avg_reset();
             }
         }
 
-        if (!g_no_tiers && smart == 1 &&
-            g_anim_last > 0 && now_ms() - g_anim_last < 400) {
-            if (cur_forced > 0 && g_anim_saved_fps == 0) {
-                g_anim_saved_fps = cur_forced;
-                g_anim_restore_due = now_ms() + g_delays[0];
+        int anim_fixed = 0, anim_dynamic = 0;
+        if (cur_forced == -3) {
+            anim_dynamic = 1;                 /* 应用多档 */
+        } else if (cur_forced > 0 || cur_forced == -1) {
+            anim_fixed = 1;                   /* 应用固定档 */
+        } else if (cur_forced == 0 && !g_no_tiers) {
+            if (g_ntiers <= 1)
+                anim_fixed = 1;               /* 全局固定档 */
+            else
+                anim_dynamic = 1;             /* 全局多档 */
+        } else {
+            anim_dynamic = 1;                 /* 应用 off / 系统动态也参与 */
+        }
+        int anim_allowed = anim_fixed ||
+            (anim_dynamic && (g_touch_last == 0 || now_ms() - g_touch_last > 1000));
+        int anim_active = anim_allowed && g_anim_last > 0 &&
+                          now_ms() - g_anim_last < 400;
+        if (anim_active) {
+            if (!g_anim_on) {
+                g_anim_on = 1;
+                g_anim_start = now_ms();
+                g_anim_saved_dynamic = anim_dynamic;
+                g_anim_saved_fps = cur_forced > 0
+                                       ? cur_forced
+                                       : (g_cur_fps > 0 ? g_cur_fps : 0);
+                g_anim_saved_state = state;
+                g_anim_saved_app_state = g_app_state;
+                g_anim_saved_forced = cur_forced;
             }
             /* 动画加速目标：cap = 本机最高刷新率；ladder = 档位表最高档 */
-            int boost_hz = top_numeric_tier();
+            int boost_hz = (cur_forced == -3 && g_fg_ntiers > 0)
+                               ? g_fg_tiers[0]
+                               : top_numeric_tier();
             if (strcmp(cfg_anim_boost, "ladder") != 0) {
                 int cap = effective_cap();
                 if (cap > 0 && cap > boost_hz)
@@ -4056,17 +4015,36 @@ int main(int argc, char **argv)
             }
             state = 0;
             next_down = now_ms() + g_delays[0];
-        }
-
-        if (g_anim_saved_fps > 0 && g_anim_restore_due > 0 &&
-            now_ms() >= g_anim_restore_due) {
+        } else if (g_anim_on) {
             int hz = g_anim_saved_fps;
+            int saved_state = g_anim_saved_state;
+            int saved_app = g_anim_saved_app_state;
+            int saved_forced = g_anim_saved_forced;
+            int touch_interrupted = g_anim_saved_dynamic &&
+                                    g_touch_last >= g_anim_start;
+            g_anim_on = 0;
             g_anim_saved_fps = 0;
-            g_anim_restore_due = 0;
-            log_msg("anim end -> restore %dHz", hz);
-            apply_fps(hz, 0);
-            state = 0;
-            next_down = g_ntiers > 1 ? now_ms() + g_delays[0] : 0;
+            g_anim_saved_state = -1;
+            g_anim_saved_app_state = -1;
+            g_anim_saved_forced = 0;
+            g_anim_saved_dynamic = 0;
+            if (cur_forced == saved_forced && !touch_interrupted) {
+                if (hz > 0) {
+                    log_msg("anim end -> restore %dHz", hz);
+                    apply_fps(hz, 0);
+                }
+                if (saved_forced == -3 && saved_app >= 0 && saved_app < g_fg_ntiers) {
+                    g_app_state = saved_app;
+                    g_app_next_down = (saved_app < g_fg_ntiers - 1)
+                                          ? now_ms() + app_delay(saved_app)
+                                          : 0;
+                } else if (saved_forced == 0 && saved_state >= 0 && saved_state < g_ntiers) {
+                    state = saved_state;
+                    next_down = (state < g_ntiers - 1)
+                                    ? now_ms() + g_delays[state]
+                                    : 0;
+                }
+            }
         }
 
         g_fg_forced = cur_forced;
@@ -4099,9 +4077,8 @@ int main(int argc, char **argv)
 
         if (cfg_bright_low > 0 && now_ms() >= g_low_next) {
             g_low_next = now_ms() + 2000;
-            int raw = read_bright_raw();
-            if (raw >= 0) {
-                int bpct = raw * 100 / 255;
+            int bpct = read_bright_pct();
+            if (bpct >= 0) {
                 if (bpct <= cfg_bright_low && !g_low_active && g_fg_forced == 0) {
                     low_enter(cfg_bright_low_cap);
                     {
@@ -4138,10 +4115,10 @@ int main(int argc, char **argv)
             if (rem > 1000) rem = 1000;
             timeout = rem;
         }
-        if (g_anim_saved_fps > 0 && g_anim_restore_due > 0) {
-            int rema = (int)(g_anim_restore_due - now_ms());
+        if (g_anim_on && g_anim_last > 0) {
+            int rema = (int)(g_anim_last + 400 - now_ms());
             if (rema < 50) rema = 50;
-            if (rema > 1000) rema = 1000;
+            if (rema > 400) rema = 400;
             if (timeout < 0 || rema < timeout)
                 timeout = rema;
         }
@@ -4165,9 +4142,9 @@ int main(int argc, char **argv)
                 pre_ctx = 1;
             if (pre_ctx) {
                 int rema = (int)(g_auto_sample_at - now_ms());
-                if (g_auto_sample_at == 0) rema = 1000;
+                if (g_auto_sample_at == 0) rema = 500;
                 if (rema < 100) rema = 100;
-                if (rema > 1000) rema = 1000;
+                if (rema > 500) rema = 500;
                 if (timeout < 0 || rema < timeout)
                     timeout = rema;
             }
@@ -4249,7 +4226,6 @@ int main(int argc, char **argv)
             cfg_due = 0;
             reload_config();
             smart = -1;
-            last_custom = -1;
             state = -1;
             dirty = 1;
         }
@@ -4277,7 +4253,11 @@ int main(int argc, char **argv)
                         act = 1;                          /* 只认真实接触中的移动，忽略 hover */
                 }
             }
-            if (act && !g_no_tiers && cur_forced == 0 && smart == 1) {
+            if (act) {
+                g_touch_last = now_ms();
+            }
+            if (act && !g_no_tiers && cur_forced == 0 && smart == 1 &&
+                g_ntiers > 1) {
 #ifdef RRS_LEGACY_1035
                 static long long last_raise;
                 if (g_cur_fps != g_tiers[0] || now_ms() - last_raise > 3000) {
