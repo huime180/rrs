@@ -2,7 +2,7 @@
 # Build the RRS module: compile the daemon and package dist/rrs-<version>-ksu.zip
 #   ./build.sh            build daemon + package
 #   ./build.sh --daemon   build the daemon only
-# Env: ZIG points to zig; LEGACY=0 disables RRS_LEGACY_1035 (enabled by default)
+# Env: ZIG points to zig
 set -eu
 cd "$(dirname "$0")"
 
@@ -23,11 +23,9 @@ ZIG_BIN=$(find_zig)
 [ -n "$ZIG_BIN" ] || { echo "zig not found: set ZIG or install zig" >&2; exit 1; }
 
 build_daemon() {
-    DEF=""
-    [ "${LEGACY:-1}" = "1" ] && DEF="-DRRS_LEGACY_1035"
     mkdir -p "$(dirname "$DAEMON")"
     "$ZIG_BIN" cc -target aarch64-linux-musl -static -O2 -pthread -s \
-        $DEF -o "$DAEMON" "$SRC"
+        -o "$DAEMON" "$SRC"
     echo "daemon: $DAEMON ($(wc -c < "$DAEMON") bytes)"
 }
 

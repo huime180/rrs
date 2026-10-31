@@ -1,45 +1,58 @@
-# RRS daemon 配置：/data/adb/RRS/config，保存后自动热重载
+# RRS 自动适配 daemon 配置（1.4.6）
+# 位置：/data/adb/RRS/config，改完自动热重载；WebUI 保存也写这里
 
-# 1 = 模块不干预，交还系统调度
-sys_default=1
-
-# 最高刷新率：0 = 本机最高；120/144/165/185 = 限制上限
+# 最高刷新率：0 = 本机最高；填 120/144/165/185 可限制上限（动态档位按该上限重算）
 fps_cap=0
 
-# 低亮度阈值（相对亮度滑块的 0-100%），0 = 关闭
+# 低亮度阈值：相对系统亮度滑块的百分比（0－100），屏幕亮度 ≤ 该值时限制最高刷新率；0 = 关闭
+# 默认 8%
 bright_low=8
-# lock = 低亮度锁定上限单档；dyn = 保留低档的动态档位
-bright_low_mode=lock
-# 低亮度时的最高刷新率
-bright_low_cap=144
-# 动画加速目标：cap = 本机最高；ladder = 档位表最高档
+# 系统动画加速目标：cap = 本机最高刷新率（默认）；ladder = 档位表最高档
 anim_boost=cap
 
-# 息屏刷新率：1 或 30，对应 ro.vendor.mi_sf.aod_mode_ddic_refresh_rate，开机生效
+# 低亮度策略：lock = 锁定最高刷新率（默认，低亮度只用一个档，切换最少）；dyn = 动态最高刷新率
+bright_low_mode=lock
+
+# 低亮度时的最高刷新率（Hz）
+# 低亮度档位 = 该值 + 原有更低档位（例：185,120,60 填 120 → 120,60；填 144 → 144,120,60）
+bright_low_cap=144
+
+# 息屏刷新率：1 或 30，对应 ro.vendor.mi_sf.aod_mode_ddic_refresh_rate；开机生效
 aod_fps=1
 
-# 1 = 写 /data/adb/RRS/rrs.log（256KB 轮转）
+# 日志：1 = 写 /data/adb/RRS/rrs.log（256KB 轮转），0 = 关闭
 log=0
 
-# 1 = 自动识别的游戏并入 AppList 的「游戏」段
+# 自动识别的游戏并入 AppList 的「游戏」段：1 开启，0 只用手动列表
 auto_gamelist=1
 
-# 动态档位（从高到低）；留空 = 自动，单值 = 锁定该档
-# 例：185,120,60
+# 动态档位（从高到低，逗号分隔）。留空 = 自动最高 / ≤120 的降档 / ≤60 的降档
+# 单值 = 锁定该档；例：185,120,60  144,120,90,60  185,165,144,120,90,60
 smart_tiers=
 
-# 每段停留（毫秒），留空 = 1000,2000
+# 每段停留（毫秒）。留空 = 1000,2000；单值 = 每段都用它
 smart_delays=1000,2000
 
-# 游戏刷新率：top / dyn / off / 数字
+# 游戏刷新率策略：top = 本机最高（默认）；dyn = 游戏内也走动态降档；
+#                 off = 不干预；数字 = 锁定该帧率
 game_fps=top
 
-# 触摸上报率：off / 240 / on（≥120 用 480）/ 185:370,165:330
+# 触摸上报率（thp_report_rate）
+# 有 touch_thp_ic_cmd 的机型直接写节点；没有的机型由安装/UI 保存时改写
+# /odm/firmware/<机型>_thp_config.ini|.cfg，最终都落到这两种配置里。
+# 写法：
+#   off                  不修改
+#   240                  所有档统一 240（可填 360 / 480，按机型支持）
+#   on                   自动：≥120 用 480，其余 240
+#   185:370,165:330,...  按刷新率分别指定（仅 touch_thp_ic_cmd 机型；
+#                        动态多档时按最高档取，如 185→120→60 始终用 185 对应值）
 thp_report_rate_normal=240
 thp_report_rate_game=off
 
-# 触摸节点：安装时自动检测，通常不需要手改
+# 触摸写节点：安装/开机时自动检测并写入，正常不需要手改。
+# 无该节点时留空即可，daemon 只走固件配置文件。
 # sampling_node=/sys/class/touch/touch_dev/touch_thp_ic_cmd
 # sampling_cmd=8 3007 %d 1
+# 其他 IC 可再加 sampling_node2/cmd2 … 4，按顺序取第一个可写的
 # sampling_node2=/sys/class/touch/touch_dev/touch_ic_cmd
 # sampling_cmd2=8 3007 %d 1

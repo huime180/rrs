@@ -11,7 +11,7 @@
  *      验证 EV_ABS + ABS_MT_POSITION_X，优先真正的多点触摸屏；
  *   4) 触摸采样率默认不碰（本机系统已按模式映射），只有配置开启且
  *      回读验证生效时才写；
- *   5) 刷新率下发失败会回读验证，并回退到 settings/DisplayManager；
+ *   5) 刷新率下发失败会回退到 DisplayManager；
  *   6) 退出时恢复原刷新率与改动过的 settings。
  *
  * 构建：zig cc -target aarch64-linux-musl -static -O2 -pthread
@@ -135,14 +135,6 @@ static int g_anim_saved_forced;          /* 动画时的 cur_forced */
 static int g_anim_saved_dynamic;         /* 动画时是否多档 */
 static volatile long long g_touch_last;  /* 最近一次触摸时间 */
 static long long g_anim_start;           /* 本次动画加速开始时间 */
-#ifdef RRS_LEGACY_1035
-#define g_no_tiers 0
-#else
-static int g_no_tiers = 0;   /* smart_tiers 未指定：模块不干预，交还系统动态 */
-static int cfg_sys_default = 1;         /* 1 = 系统默认策略：模块不干预 */
-static int g_sys_default_restored = 0;
-static char g_sys_fps_list[128] = "";   /* 系统 fpsList（来自 sys_defaults） */
-#endif
 static char cfg_sampling[192] = "off";      /* thp_report_rate_normal（默认不改） */
 static char cfg_sampling_game[192] = "off";  /* 游戏 */
 static int samp_high = 480, samp_low = 240, samp_thresh = 120;
@@ -162,10 +154,10 @@ static int cfg_log = 0;                 /* 默认关闭；1=写日志 */
 
 static int g_touch_contact_cap;        /* 0=无接触事件（退化为任意事件即触摸）1=有 */
 static int cfg_auto_gamelist = 1;       /* 启动时自动生成本机游戏列表 */
-static char cfg_game_fps[16] = "top";   /* 游戏刷新率策略：off(默认)/top/smart/数值 */
+static char cfg_game_fps[16] = "top";   /* 游戏刷新率策略：top(默认)/off/smart/数值 */
 
-/* 保存的原始 settings（空串表示原本是 null） */
-static char g_orig_peak[32], g_orig_min[32], g_orig_user[32], g_orig_smart[8];
+/* 保存被模块改写前的 is_smart_fps，退出时恢复（空串表示原本是 null） */
+static char g_orig_smart[8];
 static int g_saved_settings = 0;
 static int g_changed_settings = 0;
 static int g_changed_pref = 0;
@@ -178,7 +170,6 @@ static long long now_ms(void)
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return (long long)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
 }
-
 
 static void log_msg(const char *fmt, ...)
 {
@@ -277,7 +268,6 @@ static void rotate_log(void)
     }
 }
 
-
 static void load_config(void)
 {
     /* 重载时先回到默认值，避免删掉的键仍保留旧值 */
@@ -286,9 +276,6 @@ static void load_config(void)
     snprintf(cfg_bright_low_mode, sizeof cfg_bright_low_mode, "lock");
     snprintf(cfg_anim_boost, sizeof cfg_anim_boost, "cap");
     cfg_bright_low_cap = 144;
-#ifndef RRS_LEGACY_1035
-    cfg_sys_default = 1;
-#endif
     cfg_log = 0;
     cfg_auto_gamelist = 1;
     g_last_samp_rate[0] = g_last_samp_rate[1] = -1;
@@ -343,10 +330,6 @@ static void load_config(void)
             if (c > 0)
                 cfg_bright_low_cap = c;
         }
-#ifndef RRS_LEGACY_1035
-        else if (strcmp(k, "sys_default") == 0)
-            cfg_sys_default = atoi(v) ? 1 : 0;
-#endif
         else if (strcmp(k, "log") == 0)
             cfg_log = atoi(v);
         else if (strcmp(k, "auto_gamelist") == 0)
@@ -588,37 +571,16 @@ static void settings_delete(const char *ns, const char *key)
     run_quiet(argv);
 }
 
-#ifndef RRS_LEGACY_1035
-/* ===================== 刷新率（系统设置） ===================== */
-
-static void settings_apply_rate(int fps)
-{
-    char v[8];
-    snprintf(v, sizeof v, "%d", fps);
-    /* 只发布目标值，min/peak/user/miui 由系统侧写入 */
-    settings_put("system", "rrs_refresh_target", v);
-}
-
-static void settings_restore_auto(void)
-{
-    /* 只发布 auto，恢复原值由系统侧负责 */
-    settings_put("system", "rrs_refresh_target", "auto");
-    g_cur_fps = -1;
-}
-#endif
 
 static void save_settings_once(void)
 {
     if (g_saved_settings)
         return;
-    settings_get("system", "peak_refresh_rate", g_orig_peak, sizeof g_orig_peak);
-    settings_get("system", "min_refresh_rate", g_orig_min, sizeof g_orig_min);
-    settings_get("secure", "user_refresh_rate", g_orig_user, sizeof g_orig_user);
     settings_get("system", "is_smart_fps", g_orig_smart, sizeof g_orig_smart);
     g_saved_settings = 1;
 }
 
-/* 按当前档位重新钉系统设置（设置被手动改动时调用；值一致则不写，避免自触发循环） */
+/* 进入 smart 模式/配置重载后确认 is_smart_fps=0；值一致则不写 */
 static void repin_settings_if_needed(void)
 {
     static long long last_check;
@@ -759,7 +721,6 @@ static void compute_tiers(void)
         g_top = g_modes[0].fps;
     }
 
-#ifdef RRS_LEGACY_1035
     g_mid = -1;
     for (int i = 0; i < g_nmodes; i++) {
         if (g_modes[i].fps <= 120 && g_modes[i].fps < g_top) {
@@ -769,19 +730,6 @@ static void compute_tiers(void)
     }
     if (g_mid < 0)
         g_mid = g_top;
-#else
-    /* mid 固定取 120（面板支持且低于 top 时），没有就退化为 top */
-    g_mid = -1;
-    for (int i = 0; i < g_nmodes; i++) {
-        if (g_modes[i].fps == 120 && g_modes[i].fps <= (cap > 0 ? cap : 120) &&
-            g_modes[i].fps < g_top) {
-            g_mid = g_modes[i].fps;
-            break;
-        }
-    }
-    if (g_mid < 0)
-        g_mid = g_top;
-#endif
 
     g_low = -1;
     for (int i = 0; i < g_nmodes; i++) {
@@ -936,8 +884,8 @@ static void fallback_apply(int idx)
     Mode *m = &g_modes[idx];
     char val[16];
     snprintf(val, sizeof val, "%d", m->fps);
-    /* 只走 DisplayManager 的 preferred mode，不改 is_smart_fps/user/peak/min：
-     * 那四项由 repin_settings_if_needed() 统一维护，单应用/游戏锁帧不应触碰。 */
+    /* 只走 DisplayManager preferred mode；不改 is_smart_fps/user/peak/min。
+     * is_smart_fps 由 repin_settings_if_needed() 维护，user/peak/min 不写。 */
     char id[16], w[16], h[16];
     snprintf(id, sizeof id, "%d", g_display_id);
     snprintf(w, sizeof w, "%d", m->w);
@@ -951,7 +899,6 @@ static void fallback_apply(int idx)
 }
 
 /* ---- 触摸采样率（默认关闭，配置开启且回读验证） ---- */
-
 
 /* 解析应用级 rate= 写法：数值 / on / 185:370,120:240（返回 1 表示命中，*out=0 表示显式 off） */
 static int rate_spec_value(const char *spec, int fps, int *out)
@@ -1063,8 +1010,6 @@ static void set_sampling(int fps, int game)
 }
 
 static int is_game_any(const char *pkg);
-
-
 
 /* off（不干预）：先跟随应用请求的帧率，读不到再退回系统偏好 */
 static void apply_system_rate(void)
@@ -1209,7 +1154,6 @@ static int apply_fps(int fps, int force)
 {
     if (g_low_cap > 0 && g_fg_forced == 0 && fps > g_low_cap)
         fps = g_low_cap;   /* 应用单独锁帧时不受低亮度上限影响 */
-#ifdef RRS_LEGACY_1035
     int idx = mode_for_fps(fps, 1);
     if (idx < 0)
         return -1;
@@ -1239,34 +1183,7 @@ static int apply_fps(int fps, int force)
         set_sampling(target, is_game_any(g_fg_pkg) ? 1 : 0);
     }
     return ok;
-#else
-    if (cfg_sys_default)
-        return 0;
-    int idx = mode_for_fps(fps, 1);
-    if (idx < 0)
-        return -1;
-    int target = g_modes[idx].fps;
-    if (!force && target == g_cur_fps)
-        return 0;
-    if (g_dryrun) {
-        log_msg("DRY fps : apply %dHz", target);
-        g_cur_fps = target;
-        set_sampling(target, is_game_any(g_fg_pkg) ? 1 : 0);
-        return 0;
-    }
-    int from = g_cur_fps;
-    settings_apply_rate(target);
-    g_cur_fps = target;
-    if (from > 0)
-        log_msg("fps : apply %dHz [%d -> %dHz]", target, from, target);
-    else
-        log_msg("fps : apply %dHz", target);
-    set_sampling(target, is_game_any(g_fg_pkg) ? 1 : 0);
-    return 0;
-#endif
 }
-
-
 
 static int game_smart_mode(void)
 {
@@ -1287,31 +1204,10 @@ static void apply_game_fps(void)
         apply_fps(hz, 1);
 }
 
-#ifndef RRS_LEGACY_1035
-static void load_sys_defaults(void)
-{
-    g_sys_fps_list[0] = '\0';
-    FILE *f = fopen("/data/adb/RRS/sys_defaults", "r");
-    if (f == NULL)
-        return;
-    char line[512];
-    while (fgets(line, sizeof line, f) != NULL) {
-        char *nl = strpbrk(line, "\r\n");
-        if (nl != NULL)
-            *nl = '\0';
-        if (strncmp(line, "fps_list=", 9) == 0)
-            snprintf(g_sys_fps_list, sizeof g_sys_fps_list, "%s", line + 9);
-    }
-    fclose(f);
-}
-#endif
 
 static void build_smart_tiers(void)
 {
     g_ntiers = 0;
-#ifndef RRS_LEGACY_1035
-    g_no_tiers = (cfg_smart_tiers[0] == '\0');
-#endif
 
     if (cfg_smart_tiers[0] != '\0') {
         char buf[128];
@@ -1465,10 +1361,6 @@ static void reload_config(void)
 {
     load_config();
     compute_tiers();
-#ifndef RRS_LEGACY_1035
-    load_sys_defaults();
-    g_sys_default_restored = 0;
-#endif
     {
         char brand[64] = "";
         run_cap((char *const[]){ "getprop", "ro.product.brand", NULL }, brand, sizeof brand);
@@ -1796,7 +1688,6 @@ static const char *const k_keywords[] = {
     "hermes.p6game", "mojang.minecraftpe", "supercell.clashofclans",
     "supercell.brawlstars", "activision.callofduty.shooter",
 };
-
 
 /* ============ MIUI/HyperOS 游戏加速（Game Turbo）列表 ============
  * 读取 /data/data/com.miui.securitycenter/databases/gamebooster.db 的
@@ -2759,7 +2650,6 @@ static int run_dumpsys(const char *a, const char *b, char *out, size_t sz)
 
 /* ---- 内容自适应档位 ---- */
 
-
 #define AUTO_MAX_LAYERS 8
 #define AUTO_HIST 2
 struct auto_snap {
@@ -3071,7 +2961,7 @@ static void fg_set_game(int game, int app_fps, const int *tiers, int ntiers)
         }
     }
     if (changed && g_app_fps == 0) {
-        /* 固定模式：不再改刷新率，只按应用/游戏切换采样率 */
+        /* 全局模式：刷新率由主循环处理，这里只同步采样率 */
         int rfps = g_cur_fps > 0 ? g_cur_fps : 0;
         set_sampling(rfps, is_game_any(g_fg_pkg) ? 1 : 0);
     }
@@ -3083,7 +2973,6 @@ static void fg_set_game(int game, int app_fps, const int *tiers, int ntiers)
     }
 }
 
-/* 抓一次 dumpsys window/activity，判断前台是否游戏 */
 /* 从 logcat 事件块解析前台包名（wm_set_resumed_activity: [0,pkg/.Act,...]） */
 static int pkg_from_events(const char *buf, char *out, size_t sz)
 {
@@ -3139,6 +3028,7 @@ static void fg_apply_pkg(const char *pkg)
     }
 }
 
+/* 兜底：抓一次 dumpsys window/activity 判断前台 */
 static void fg_poll_once(void)
 {
     static char win[65536];
@@ -3438,15 +3328,10 @@ static void restore_all(void)
         run_quiet((char *const[]){ "cmd", "display", "reset-user-preferred-display-mode", id, NULL });
     }
     if (!g_dryrun) {
-#ifdef RRS_LEGACY_1035
         if (g_orig_sf >= 0) {
             log_msg("restore refresh to sfModeId %d", g_orig_sf);
             set_1035(g_orig_sf);
         }
-#else
-        log_msg("restore refresh settings to stock");
-        settings_restore_auto();
-#endif
     }
 }
 
@@ -3460,7 +3345,6 @@ static int get_user(void)
     }
     return 0;
 }
-
 
 static void setup_signals(void)
 {
@@ -3591,9 +3475,6 @@ int main(int argc, char **argv)
     pthread_mutex_init(&g_ext_lock, NULL);
 
     load_config();
-#ifndef RRS_LEGACY_1035
-    load_sys_defaults();
-#endif
     /* 旧文件名迁移：GameList -> AppList（保留旧文件，不删） */
     if (access("/data/adb/RRS/AppList", F_OK) != 0 &&
         access("/data/adb/RRS/GameList", F_OK) == 0) {
@@ -3643,7 +3524,6 @@ int main(int argc, char **argv)
         return 0;
     }
 
-
     log_msg("start: user=%d top=%d mid=%d low=%d support_cap=%d touch=%s",
             g_user, g_top, g_mid, g_low, g_support_cap,
             g_touch_path[0] ? g_touch_path : "none");
@@ -3685,51 +3565,7 @@ int main(int argc, char **argv)
     while (!g_stop) {
         time_t now = time(NULL);
 
-#ifndef RRS_LEGACY_1035
-        if (cfg_sys_default) {
-            if (!g_sys_default_restored) {
-                settings_restore_auto();
-#ifdef RRS_LEGACY_1035
-                {
-                    char pref[16] = "";
-                    int hz = 0;
-                    if (settings_get("secure", "user_refresh_rate", pref, sizeof pref))
-                        hz = atoi(pref);
-                    if (hz <= 0 && settings_get("system", "peak_refresh_rate", pref, sizeof pref))
-                        hz = atoi(pref);
-                    if (hz > 0) {
-                        int idx = mode_for_fps(hz, 1);
-                        if (idx >= 0) {
-                            log_msg("system default policy: set sfModeId %d (%dHz)",
-                                    g_modes[idx].sf, g_modes[idx].fps);
-                            set_1035(g_modes[idx].sf);
-                        }
-                    } else {
-                        log_msg("system default policy: module idle (no prefer rate)");
-                    }
-                }
-#endif
-                log_msg("system default policy: module idle, settings restored");
-                g_sys_default_restored = 1;
-            }
-        } else if (g_sys_default_restored) {
-            g_sys_default_restored = 0;
-            smart = -1;
-            dirty = 1;
-        }
-#endif
 
-#ifndef RRS_LEGACY_1035
-        {
-            static long long last_beat;
-            if (last_beat == 0 || now_ms() - last_beat > 5000) {
-                last_beat = now_ms();
-                char b[16];
-                snprintf(b, sizeof b, "%lld", (long long)time(NULL));
-                settings_put("system", "rrs_beat", b);
-            }
-        }
-#endif
 
         int forced = g_app_fps;
         if (forced != cur_forced) {
@@ -3746,12 +3582,7 @@ int main(int argc, char **argv)
                     g_app_state = -1;
                     g_app_next_down = 0;
                 } else if (forced == -2) {
-#ifdef RRS_LEGACY_1035
                     apply_system_rate();
-#else
-                    settings_restore_auto();
-                    log_msg("fps : system auto (restored)");
-#endif
                 } else {
                     int hz = (forced == -1) ? g_top : forced;
                     if (hz > 0)
@@ -3806,7 +3637,7 @@ int main(int argc, char **argv)
             }
         }
 
-        if (!g_no_tiers && cur_forced == 0 && g_game_front && !g_game_active) {
+        if (cur_forced == 0 && g_game_front && !g_game_active) {
             if (last_game != 0 && now - last_game <= 9) {
                 if (now - last_game >= 5) {
                     if (hold >= 1) {
@@ -3856,7 +3687,7 @@ int main(int argc, char **argv)
             hold = 0;
         }
 
-        if (!g_no_tiers && cur_forced == 0 && smart == 1 &&
+        if (cur_forced == 0 && smart == 1 &&
             state >= 0 && state < g_ntiers - 1 && next_down > 0 && now_ms() >= next_down) {
             int next = state + 1;
             if (g_tiers[next] == TIER_AUTO && g_auto_avg_n < 2) {
@@ -3880,15 +3711,11 @@ int main(int argc, char **argv)
             }
         }
 
-
-
-
         if (!g_game_active && cur_forced == 0 && dirty) {
-            /* 只钉一次系统设置：smart=0、user/peak=最高、min=最低；之后档位全走 1035。
-             * 档位列表只有一个值时就等价于“固定”，多个值就是“动态”，不再区分模式。 */
+            /* 进入 smart 模式时确认 smart=0，之后刷新率全走 1035。
+             * 档位列表只有一个值时就等价于“固定”，多个值就是“动态”。 */
             if (smart != 1) {
                 smart = 1;
-#ifdef RRS_LEGACY_1035
                 repin_settings_if_needed();
                 {
                     char tstr[80];
@@ -3902,23 +3729,6 @@ int main(int argc, char **argv)
                         tier_apply(0, 0);
                     }
                 }
-#else
-                if (g_no_tiers) {
-                    settings_restore_auto();
-                    log_msg("system dynamic: smart_tiers empty, module idle");
-                } else {
-                    char tstr[80];
-                    tier_fmt(tstr, sizeof tstr, g_tiers, g_ntiers);
-                    log_msg("global_fps_mode: %s", tstr);
-                    state = 0;
-                    next_down = now_ms() + g_delays[0];
-                    if (g_ntiers == 1 && g_tiers[0] == TIER_AUTO) {
-                        apply_fps(top_numeric_tier(), 1);   /* 固定自适应：先升到前档最高刷新率 */
-                    } else {
-                        tier_apply(0, 0);
-                    }
-                }
-#endif
             }
             dirty = 0;
         }
@@ -3951,7 +3761,7 @@ int main(int argc, char **argv)
         /* 自适应统计：只在 AUTO 的前一档采样，0.5 秒一次，最近 4 个有效样本取众数 */
         {
             int pre_global = 0, pre_app = 0;
-            if (!g_no_tiers && smart == 1 && cur_forced == 0 &&
+            if (smart == 1 && cur_forced == 0 &&
                 g_ntiers >= 2 && g_tiers[g_ntiers - 1] == TIER_AUTO &&
                 state == g_ntiers - 2)
                 pre_global = 1;
@@ -3990,7 +3800,7 @@ int main(int argc, char **argv)
             anim_dynamic = 1;                 /* 应用多档 */
         } else if (cur_forced > 0 || cur_forced == -1) {
             anim_fixed = 1;                   /* 应用固定档 */
-        } else if (cur_forced == 0 && !g_no_tiers) {
+        } else if (cur_forced == 0) {
             if (g_ntiers <= 1)
                 anim_fixed = 1;               /* 全局固定档 */
             else
@@ -4148,7 +3958,7 @@ int main(int argc, char **argv)
         }
         {
             int pre_ctx = 0;
-            if (!g_no_tiers && smart == 1 && g_ntiers >= 2 &&
+            if (smart == 1 && g_ntiers >= 2 &&
                 g_tiers[g_ntiers - 1] == TIER_AUTO && state == g_ntiers - 2)
                 pre_ctx = 1;
             else if (cur_forced == -3 && g_fg_ntiers >= 2 &&
@@ -4189,7 +3999,6 @@ int main(int argc, char **argv)
 
         /* ret == 0（超时）不 continue：下面的定时任务（降档截止、延迟切帧率、
          * config 防抖）都靠这次唤醒处理 */
-
 
         int touch_ready = 0, inotify_ready = 0, wake_ready = 0;
         for (int i = 0; i < nfds; i++) {
@@ -4271,9 +4080,8 @@ int main(int argc, char **argv)
             if (act) {
                 g_touch_last = now_ms();
             }
-            if (act && !g_no_tiers && cur_forced == 0 && smart == 1 &&
+            if (act && cur_forced == 0 && smart == 1 &&
                 g_ntiers > 1) {
-#ifdef RRS_LEGACY_1035
                 static long long last_raise;
                 if (g_cur_fps != g_tiers[0] || now_ms() - last_raise > 3000) {
                     last_raise = now_ms();
@@ -4284,18 +4092,6 @@ int main(int argc, char **argv)
                 if (g_ntiers >= 2 && g_tiers[g_ntiers - 1] == TIER_AUTO &&
                     state == g_ntiers - 2)
                     auto_avg_reset();   /* 触摸升档后重新统计低帧 */
-#else
-                static long long last_raise;
-                if (g_cur_fps != g_tiers[0] || now_ms() - last_raise > 3000) {
-                    last_raise = now_ms();
-                    apply_fps(g_tiers[0], 0);
-                }
-                state = 0;
-                next_down = now_ms() + g_delays[0];
-                if (g_ntiers >= 2 && g_tiers[g_ntiers - 1] == TIER_AUTO &&
-                    state == g_ntiers - 2)
-                    auto_avg_reset();   /* 触摸升档后重新统计低帧 */
-#endif
             }
             if (cur_forced == -3 && g_fg_ntiers > 0) {
                 if (g_cur_fps != g_fg_tiers[0])
