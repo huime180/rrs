@@ -209,7 +209,7 @@ html[data-theme="dark"] body.wall-on #wall{opacity:.62}
       <div class="grid2">
         <div class="kv"><div class="k">机型</div><div class="v small" id="devModel">-</div></div>
         <div class="kv"><div class="k">模块版本</div><div class="v small" id="ver">-</div></div>
-        <div class="kv"><div class="k">模块档位</div><div class="v small" id="tiers">-</div></div>
+        <div class="kv"><div class="k">刷新率模式</div><div class="v small" id="tiers">-</div></div>
         <div class="kv"><div class="k">息屏刷新率</div><div class="v small" id="aodVal">-</div></div>
         <div class="kv"><div class="k">最高刷新率</div><div class="v small" id="panelCap">-</div></div>
         <div class="kv"><div class="k">最高采样率</div><div class="v small" id="thpMax">-</div></div>
@@ -219,13 +219,6 @@ html[data-theme="dark"] body.wall-on #wall{opacity:.62}
       <div class="hr"></div>
       <div class="row tap" id="rowApps"><div class="ic">▦</div><div class="txt"><div class="lbl">刷新率控制</div><div class="hint">按应用/游戏单独设置</div></div><div class="chev">›</div></div>
       <div class="row tap" id="rowLog"><div class="ic">≡</div><div class="txt"><div class="lbl">查看日志</div><div class="hint">最近 200 行 rrs.log</div></div><div class="chev">›</div></div>
-    </div>
-
-    <div class="section" id="sysDefSection" style="display:none">系统默认策略</div>
-    <div class="card" id="sysDefCard" style="display:none">
-      <div class="note" id="sysDefInfo">读取中…</div>
-      <div class="btns"><button class="btn primary" id="btnSysDefault">还原系统默认刷新率策略</button></div>
-      <div class="note" style="margin-top:8px">数据来自设备 device_features 与 powerkeeper 默认清单；还原后模块停止干预，交还系统调度。</div>
     </div>
   </div>
 
@@ -276,6 +269,8 @@ html[data-theme="dark"] body.wall-on #wall{opacity:.62}
         <div class="v small" id="cfgGameVal" style="margin:0">-</div>
         <div class="chev">›</div>
       </div>
+      <div class="row"><div class="txt"><div class="lbl">自动导入游戏</div><div class="hint">识别游戏加速应用名单并写入游戏列表</div></div>
+        <label class="switch"><input type="checkbox" id="cfg_auto_gamelist"><span class="track"></span><span class="knob"></span></label></div>
       <div class="row"><div class="txt"><div class="lbl">日志</div></div>
         <label class="switch"><input type="checkbox" id="cfg_log"><span class="track"></span><span class="knob"></span></label></div>
       <div class="btns"><button class="btn primary" id="btnSaveCfg">保存配置</button><button class="btn" id="btnResetCfg">恢复默认</button></div>
@@ -937,12 +932,11 @@ function gameFpsText(v){
   v = String(v || "");
   if (!v) return "未设置";
   if (v === "top") return "最高档";
-  if (v === "off") return "系统动态";
+  if (v === "off") return "不干预";
   if (v === "smart" || v === "dyn") return "动态（跟随全局档位）";
   return v + " Hz";
 }
 async function setGameFps(v){
-  await clearSysDefault();
   var r = await exec("cat " + shq(CFG) + " 2>/dev/null");
   var lines = (r.stdout || "").split(/\r?\n/);
   lines = setCfgKey(lines, "game_fps", v);
@@ -976,7 +970,7 @@ function openGameFpsDlg(){
   }
   opt("▲", "最高档", gameFps === "top", function(){ setGameFps("top"); });
   opt("◐", "动态（跟随全局档位）", gameFps === "dyn" || gameFps === "smart", function(){ setGameFps("dyn"); });
-  opt("∅", "系统动态（交还系统）", gameFps === "off", function(){ setGameFps("off"); });
+  opt("∅", "不干预", gameFps === "off", function(){ setGameFps("off"); });
   opt("🕐", "指定帧率 ›", /^\d+$/.test(String(gameFps)), function(){
     box.style.display = "none";
     var r = $("dlgRates");
@@ -1417,7 +1411,7 @@ function saveEntry(pkg, name, mut){
 function fpsText(fps){
   if (fps === undefined || fps === null || fps === "") return "";
   if (fps === "top") return "最高";
-  if (fps === "off") return "系统动态";
+  if (fps === "off") return "不干预";
   if (fps === "auto" || fps === "自适应") return "自适应";
   if (String(fps).indexOf(",") >= 0){
     var parts = String(fps).split(",").map(function(x){
@@ -1493,7 +1487,7 @@ function rateChooser(host, getSel, onApply, onCancel, delays){
     }
     html += '<div class="btns"><button class="btn primary" data-act="apply">应用</button>' +
       '<button class="btn" data-act="top">' + (effectiveCap() > 0 ? ("最高 " + effectiveCap() + " Hz") : "最高") + '</button>' +
-      '<button class="btn" data-act="off">系统动态</button>' +
+      '<button class="btn" data-act="off">不干预</button>' +
       '<button class="btn" data-act="cancel">取消</button></div>';
     host.innerHTML = html;
     Array.prototype.forEach.call(host.querySelectorAll("button[data-rate]"), function(b){
@@ -1501,6 +1495,11 @@ function rateChooser(host, getSel, onApply, onCancel, delays){
         var v = parseInt(b.getAttribute("data-rate"), 10);
         var i = sel.indexOf(v);
         if (i >= 0) sel.splice(i, 1); else sel.push(v);
+        sel.sort(function(a, c){
+          if (a === "auto") return 1;
+          if (c === "auto") return -1;
+          return c - a;
+        });
         paint();
       });
     });
@@ -1742,11 +1741,8 @@ function renderGlobalRates(){
       saveSmartTiers();
     });
   });
-  if (!curSmartTiers.length){
-    $("globalTierCap").textContent = "档位：未指定（系统动态，模块不干预；勾选档位后由模块接管）";
-  } else {
-    $("globalTierCap").textContent = "档位（单选 = 固定，多选 = 动态）当前：" + curSmartTiers.join(" → ");
-  }
+  var dt = defaultTiersText();
+  if (dt) $("globalTierCap").textContent = "档位（单选 = 固定，多选 = 动态）默认：" + dt;
   if ($("tiers")){
     var tl = curSmartTiers.length ? curSmartTiers
       : (effTiersCache.length ? effTiersCache
@@ -1755,7 +1751,6 @@ function renderGlobalRates(){
   }
 }
 async function saveSmartTiers(){
-  await clearSysDefault();
   var r = await exec("cat " + shq(CFG) + " 2>/dev/null");
   var lines = (r.stdout || "").split(/\r?\n/);
   lines = setCfgKey(lines, "smart_tiers", curSmartTiers.join(","));
@@ -1773,6 +1768,7 @@ async function loadCfg(){
     var n = parseInt(x, 10);
     return n > 0 ? n : null;
   }).filter(function(x){ return x !== null; });
+  if (!curSmartTiers.length && effTiersCache.length) curSmartTiers = effTiersCache.slice();
   renderGlobalRates();
   cfgCap = parseInt(m.fps_cap, 10) || 0;
   $("cfg_cap").value = m.fps_cap || "0";
@@ -1789,6 +1785,7 @@ async function loadCfg(){
   gameFps = m.game_fps || "top";
   $("cfgGameVal").textContent = gameFpsText(gameFps);
   $("cfg_log").checked = (m.log || "0") === "1";
+  $("cfg_auto_gamelist").checked = (m.auto_gamelist || "1") === "1";
   var trn = m.thp_report_rate_normal || "";
   var trg = m.thp_report_rate_game || "";
   thpN = (trn || "off").trim();
@@ -1807,7 +1804,6 @@ async function loadCfg(){
   if ($("aodVal")) $("aodVal").textContent = offFpsRowText();
 }
 async function saveCfg(){
-  await clearSysDefault();
   var r = await exec("cat " + shq(CFG) + " 2>/dev/null");
   var mOld = parseCfg(r.stdout || "");
   var sampOld = ((mOld.thp_report_rate_normal || "off") + "").trim();
@@ -1820,6 +1816,7 @@ async function saveCfg(){
   lines = setCfgKey(lines, "bright_low_mode", brightLowDyn ? "dyn" : "lock");
   lines = setCfgKey(lines, "anim_boost", animBoost);
   lines = setCfgKey(lines, "log", $("cfg_log").checked ? "1" : "0");
+  lines = setCfgKey(lines, "auto_gamelist", $("cfg_auto_gamelist").checked ? "1" : "0");
   lines = lines.filter(function(l){ return !/^\s*(sampling|sampling_game)\s*=/.test(l); });
   lines = setCfgKey(lines, "thp_report_rate_normal", thpN || "off");
   lines = setCfgKey(lines, "thp_report_rate_game", thpG || "off");
@@ -1849,7 +1846,6 @@ async function loadGl(){
   if (needFix) saveGl();
 }
 async function saveGl(){
-  await clearSysDefault();
   var w = await exec("echo " + b64(buildGameList()) + " | base64 -d > " + shq(GL) + " && chmod 644 " + shq(GL));
   if (w.errno === 0){ toast("AppList 已保存"); }
   else toast("保存失败：" + (w.stderr || w.errno));
@@ -1943,8 +1939,6 @@ function syncLiquidRow(){
 }
 function bind(){
   $("btnTheme").addEventListener("click", cycleTheme);
-  if ($("btnSysDefault")) $("btnSysDefault").addEventListener("click", restoreSysDefault);
-  if ($("btnImportSys")) $("btnImportSys").addEventListener("click", openImportDlg);
   document.querySelectorAll("#themeSeg button").forEach(function(b){
     b.addEventListener("click", function(){ setTheme(b.dataset.theme); toast(b.textContent); });
   });
@@ -2034,10 +2028,11 @@ function bind(){
     $("brightLowVal").textContent = this.value + "%";
     toggleBrightCap();
   });
-  ["cfg_cap", "cfg_delays", "cfg_bright_low", "cfg_log"].forEach(function(id){
+  ["cfg_cap", "cfg_delays", "cfg_bright_low", "cfg_log", "cfg_auto_gamelist"].forEach(function(id){
     $(id).addEventListener("change", saveCfg);
   });
   $("btnResetCfg").addEventListener("click", resetCfg);
+  if ($("btnImportSys")) $("btnImportSys").addEventListener("click", openImportDlg);
   $("dlgCancel").addEventListener("click", function(){ $("dlg").style.display = "none"; });
   $("dlg").addEventListener("click", function(e){        /* 点空白处也能退出 */
     if (e.target.id === "dlg") $("dlg").style.display = "none";
@@ -2067,19 +2062,6 @@ function bind(){
 }
 
 var fpsTimer = null;
-async function loadSysDefaults(){
-  var r = await exec("cat " + shq("/data/adb/RRS/sys_defaults") + " 2>/dev/null");
-  var m = parseCfg(r.stdout || "");
-  var list = String(m.fps_list || "").split(",").filter(function(x){ return x && x !== "1"; });
-  var n60 = String(m.list60 || "").split(",").filter(Boolean).length;
-  var npriv = String(m.priv || "").split(",").filter(Boolean).length;
-  var ntop = String(m.top || "").split(",").filter(Boolean).length;
-  if ($("sysDefInfo")) $("sysDefInfo").textContent =
-    "系统名单：60Hz 清单 " + n60 + " 个 · 游戏档 " + npriv + " 个 · 热门游戏 " + ntop + " 个";
-}
-async function clearSysDefault(){
-  await exec("C=" + shq(CFG) + "; [ -f \"$C\" ] && grep -q '^sys_default=' \"$C\" && sed -i 's/^sys_default=.*/sys_default=0/' \"$C\" || true");
-}
 async function sysDefaultEntries(){
   var sd = await exec("cat /data/adb/RRS/sys_defaults 2>/dev/null");
   var m = parseCfg(sd.stdout || "");
@@ -2089,7 +2071,7 @@ async function sysDefaultEntries(){
   var seen = {}, entries = [];
   function nameOf(p){
     var l = label[p];
-    return (l && l !== p) ? l : "";   /* 已安装但没有名字：只写包名 */
+    return (l && l !== p) ? l : "";
   }
   function installed(p){ return Object.prototype.hasOwnProperty.call(label, p); }
   function addApp(list){
@@ -2122,7 +2104,7 @@ async function sysDefaultEntries(){
 function openImportDlg(){
   dlgLockSwitch(false);
   $("dlgTitle").textContent = "导入系统默认刷新率策略";
-  $("dlgSub").textContent = "来源：device_features + powerkeeper 默认清单（仅本机已安装应用）";
+  $("dlgSub").textContent = "来源：device_features + powerkeeper 默认清单";
   $("dlgIcon").style.display = "none";
   $("dlgRates").style.display = "none";
   var box = $("dlgOpts");
@@ -2148,7 +2130,6 @@ function openImportDlg(){
 }
 
 async function importSysDefaults(mode){
-  mode = mode || "replace";
   await exec("sh " + shq(MOD + "/tools/gen_sys_defaults.sh") + " >/dev/null 2>&1");
   var entries = await sysDefaultEntries();
   var added = 0;
@@ -2171,37 +2152,12 @@ async function importSysDefaults(mode){
     });
   }
   await saveGl();
-  var r = await exec("cat " + shq(CFG) + " 2>/dev/null");
-  var lines = (r.stdout || "").split(/\r?\n/);
-  lines = setCfgKey(lines, "auto_gamelist", "0");
-  await exec("echo " + b64(lines.join("\n")) + " | base64 -d > " + shq(CFG) + " && chmod 644 " + shq(CFG));
   renderApps();
   loadCfg();
-  toast("已导入系统默认（" + (mode === "replace" ? "覆盖" : "合并") + "）：游戏 " +
-        entries.filter(function(e){ return e.game; }).length +
+  toast("已导入系统默认刷新率策略（" + (mode === "replace" ? "覆盖" : "合并") +
+        "）：游戏 " + entries.filter(function(e){ return e.game; }).length +
         " 个，应用 " + entries.filter(function(e){ return !e.game; }).length + " 个" +
         (mode === "merge" ? "，新增 " + added + " 条" : ""));
-}
-
-async function restoreSysDefault(){
-  var sd = await exec("cat /data/adb/RRS/sys_defaults 2>/dev/null");
-  var m = parseCfg(sd.stdout || "");
-  var max = parseInt(m.max_fps, 10) || 0;
-  var r = await exec("cat " + shq(CFG) + " 2>/dev/null");
-  var lines = (r.stdout || "").split(/\r?\n/);
-  lines = setCfgKey(lines, "fps_cap", String(max));
-  lines = setCfgKey(lines, "smart_tiers", "");
-  lines = setCfgKey(lines, "game_fps", "dyn");
-  lines = setCfgKey(lines, "sys_default", "1");
-  var w = await exec("echo " + b64(lines.join("\n")) + " | base64 -d > " + shq(CFG) + " && chmod 644 " + shq(CFG));
-  if (w.errno !== 0){ toast("配置写入失败"); return; }
-  await exec("killall -TERM RRS_Daemon 2>/dev/null || true");
-  await exec("sleep 1");
-  await exec("killall -9 RRS_Daemon 2>/dev/null || true");
-  await exec("settings put system is_smart_fps 1");
-  toast("已交还系统默认：is_smart_fps=1，daemon 已停止");
-  curSmartTiers = [];
-  loadSysDefaults(); loadCfg(); setTimeout(refreshStatus, 800);
 }
 
 async function init(){
@@ -2218,7 +2174,6 @@ async function init(){
   await refreshStatus(true);
   await loadCfg();
   await loadGl();
-  loadSysDefaults();
   (async function(){ await loadApps(); renderApps(); })();
   if (!ksuOk()) toast("未检测到 KernelSU WebUI 桥，页面只能显示");
 }

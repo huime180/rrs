@@ -15,5 +15,3 @@
 - Home page tier display includes `auto`
 - `--probe` prints `auto` instead of `-1`
 - Low-brightness threshold follows the system brightness slider instead of the raw backlight percentage
-- Restore system default sets `is_smart_fps=1` and stops the daemon
-- System-default AppList import uses only installed apps, with overwrite/merge options

@@ -135,11 +135,11 @@ static int g_anim_saved_forced;          /* 动画时的 cur_forced */
 static int g_anim_saved_dynamic;         /* 动画时是否多档 */
 static volatile long long g_touch_last;  /* 最近一次触摸时间 */
 static long long g_anim_start;           /* 本次动画加速开始时间 */
-static int cfg_sys_default = 1;         /* 1 = 系统默认策略：模块不干预 */
 #ifdef RRS_LEGACY_1035
 #define g_no_tiers 0
 #else
 static int g_no_tiers = 0;   /* smart_tiers 未指定：模块不干预，交还系统动态 */
+static int cfg_sys_default = 1;         /* 1 = 系统默认策略：模块不干预 */
 static int g_sys_default_restored = 0;
 static char g_sys_fps_list[128] = "";   /* 系统 fpsList（来自 sys_defaults） */
 #endif
@@ -286,7 +286,9 @@ static void load_config(void)
     snprintf(cfg_bright_low_mode, sizeof cfg_bright_low_mode, "lock");
     snprintf(cfg_anim_boost, sizeof cfg_anim_boost, "cap");
     cfg_bright_low_cap = 144;
+#ifndef RRS_LEGACY_1035
     cfg_sys_default = 1;
+#endif
     cfg_log = 0;
     cfg_auto_gamelist = 1;
     g_last_samp_rate[0] = g_last_samp_rate[1] = -1;
@@ -341,8 +343,10 @@ static void load_config(void)
             if (c > 0)
                 cfg_bright_low_cap = c;
         }
+#ifndef RRS_LEGACY_1035
         else if (strcmp(k, "sys_default") == 0)
             cfg_sys_default = atoi(v) ? 1 : 0;
+#endif
         else if (strcmp(k, "log") == 0)
             cfg_log = atoi(v);
         else if (strcmp(k, "auto_gamelist") == 0)
@@ -3639,11 +3643,6 @@ int main(int argc, char **argv)
         return 0;
     }
 
-    if (cfg_sys_default) {
-        settings_put("system", "is_smart_fps", "1");
-        log_msg("system default policy: smart=1, daemon idle");
-        return 0;
-    }
 
     log_msg("start: user=%d top=%d mid=%d low=%d support_cap=%d touch=%s",
             g_user, g_top, g_mid, g_low, g_support_cap,
