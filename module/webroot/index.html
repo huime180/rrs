@@ -803,11 +803,20 @@ async function setThpRate(game, val){
   toast("已设置 " + (val || "off") + (fw ? "，已写入固件" : ""));
   setTimeout(refreshStatus, 900);
 }
-var thpMaxRec = null;              /* /data/adb/RRS/thp_rate_max（安装/开机时从固件读出） */
+var thpMaxRec = null;              /* 从 thp_stock 或当前固件动态解析 */
 async function loadThpMax(){
   if (thpMaxRec != null) return thpMaxRec;
-  var r = await exec("cat /data/adb/RRS/thp_rate_max 2>/dev/null");
-  thpMaxRec = parseInt((r.stdout || "").trim(), 10) || 0;
+  var r = await exec("cat /data/adb/RRS/thp_stock 2>/dev/null");
+  var mx = 0;
+  (r.stdout || "").split(/\r?\n/).forEach(function(l){
+    var m = l.match(/^[[:space:]]*[a-zA-Z_]*rate[a-zA-Z_]*[[:space:]]*=[[:space:]]*(\d+)/);
+    if (m) mx = Math.max(mx, parseInt(m[1], 10));
+  });
+  if (!mx){
+    var s = await thpMaxSupported();
+    mx = Math.max(s.n || 0, s.g || 0);
+  }
+  thpMaxRec = mx;
   return thpMaxRec;
 }
 var thpMax = null;                 /* {n: 日常上限, g: 游戏上限}，0 = 未知 */
@@ -818,7 +827,7 @@ async function thpMaxSupported(){
   var cmd =
     "for f in " + shq(FW_DIR) + "/*thp_config.ini /odm/firmware/*thp_config.ini; do " +
     "[ -f \"$f\" ] && grep -E '^[[:space:]]*[a-zA-Z_]*rate[a-zA-Z_]*[[:space:]]*=' \"$f\"; done; " +
-    "for f in /odm/firmware/*thp_config.cfg " + shq(FW_DIR) + "/*thp_config.cfg; do " +
+    "for f in " + shq(FW_DIR) + "/*thp_config.cfg /odm/firmware/*thp_config.cfg; do " +
     "[ -f \"$f\" ] && " + shq(MOD + "/tools/thp_dump") +
     " \"$f\" 2>/dev/null | grep -E '^[[:space:]]*[a-zA-Z_]*rate[a-zA-Z_]*[[:space:]]*='; done; true";
   var r = await exec(cmd);
@@ -1858,21 +1867,23 @@ function parseFwVal(v){
   return null;
 }
 async function applyFwRates(normal, game){
-
   var nv = parseFwVal(normal), gv = parseFwVal(game);
   if (!nv && !gv) return false;
   var tool = MOD + "/tools/thp_repack";
+  var NV = nv ? nv.rate : 0;
+  var GV = gv ? gv.rate : 0;
   var cmd = "M=" + shq(FW_DIR) + "; mkdir -p \"$M\"; " +
-    "for f in /odm/firmware/*thp_config.ini; do [ -f \"$f\" ] || continue; b=$(basename \"$f\"); " +
-    "cp -f \"$f\" \"$M/$b\"; " +
-    (nv ? "sed -i -E \"s/^([[:space:]]*ic_rate_normal=).*/\\1" + nv.ic + "/; s/^([[:space:]]*rate_normal=).*/\\1" + nv.rate + "/\" \"$M/$b\"; " : "") +
-    (gv ? "sed -i -E \"s/^([[:space:]]*ic_rate_game=).*/\\1" + gv.ic + "/; s/^([[:space:]]*rate_game=).*/\\1" + gv.rate + "/\" \"$M/$b\"; " : "") +
-    "done; " +
+    "for f in /odm/firmware/*thp_config.ini; do [ -s \"$f\" ] || continue; b=$(basename \"$f\"); " +
+    "cp -f \"$f\" \"$M/$b\" || continue; " +
+    (nv ? "C=$(sed -n 's/^[[:space:]]*ic_report_timer_coef[[:space:]]*=[[:space:]]*\\([0-9][0-9]*\\).*/\\1/p' \"$f\" | head -n1); [ -z \"$C\" ] && C=1; [ \"$C\" -gt 0 ] || C=1; I=$(( " + NV + " / C)); [ \"$I\" -lt 1 ] && I=1; " +
+          "sed -i -E \"s/^([[:space:]]*ic_rate_normal=).*/\\1$I/; s/^([[:space:]]*rate_normal=).*/\\1" + NV + "/\" \"$M/$b\"; " : "") +
+    (gv ? "sed -i -E \"s/^([[:space:]]*ic_rate_game=).*/\\1" + GV + "/; s/^([[:space:]]*rate_game=).*/\\1" + GV + "/\" \"$M/$b\"; " : "") +
+    "[ -s \"$M/$b\" ] && grep -q 'rate_normal=' \"$M/$b\" || { rm -f \"$M/$b\"; continue; }; done; " +
     "T=" + shq(tool) + "; [ -x \"$T\" ] || chmod 755 \"$T\" 2>/dev/null; " +
-    "for f in /odm/firmware/*thp_config.cfg; do [ -f \"$f\" ] || continue; b=$(basename \"$f\"); " +
-    "\"$T\" \"$f\" \"$M/$b\" " + (nv ? nv.rate : gv.rate) + " >/dev/null 2>&1; " +
+    "for f in /odm/firmware/*thp_config.cfg; do [ -s \"$f\" ] || continue; b=$(basename \"$f\"); " +
+    "\"$T\" \"$f\" \"$M/$b\" " + (nv ? NV : GV) + " >/dev/null 2>&1; " +
     "[ -s \"$M/$b\" ] || { rm -f \"$M/$b\"; continue; }; " +
-    shq(tool.replace("thp_repack", "thp_dump")) + " \"$M/$b\" 2>/dev/null | grep -qE 'rate_(normal|game)=' || rm -f \"$M/$b\"; done; " +
+    shq(tool.replace("thp_repack", "thp_dump")) + " \"$M/$b\" 2>/dev/null | grep -qE 'rate_(normal|game)=' || { rm -f \"$M/$b\"; continue; }; done; " +
     "chmod 644 \"$M\"/* 2>/dev/null; chcon u:object_r:vendor_file:s0 \"$M\"/* 2>/dev/null; " +
     "for f in \"$M\"/*; do [ -f \"$f\" ] || continue; ls -Z \"$f\" | grep -q vendor_file || rm -f \"$f\"; done; " +
     "echo FILES=$(ls \"$M\"/*thp_config.* 2>/dev/null | wc -l)";
@@ -1883,20 +1894,48 @@ async function applyFwRates(normal, game){
 
 var modalKind = "log";
 async function showThp(){
-  var keys = "ic_rate_normal|rate_normal|rate_default|ic_rate_game|rate_game|ic_rate_game_super|rate_game_super";
   var dump = shq(MOD + "/tools/thp_dump");
-  var cmd = "K='" + keys + "'; " +
-    "for f in " + FW_DIR + "/*thp_config.ini /odm/firmware/*thp_config.ini; do " +
-    "[ -f \"$f\" ] || continue; echo \"== $f\"; " +
-    "grep -E \"^[[:space:]]*($K)=\" \"$f\"; done; " +
-    "for f in " + FW_DIR + "/*thp_config.cfg /odm/firmware/*thp_config.cfg; do " +
-    "[ -f \"$f\" ] || continue; echo \"== $f（已解密）\"; " +
-    dump + " \"$f\" 2>/dev/null | grep -E \"^[[:space:]]*($K)=\"; done; true";
+  var sect = "awk '/^report_rate/{f=1;next} f && /^[a-z_]/ {exit} f {print}'";
+  var cmd = "for f in " + FW_DIR + "/*thp_config.ini; do " +
+    "[ -s \"$f\" ] || continue; b=$(basename \"$f\"); " +
+    "if cmp -s \"$f\" \"/odm/firmware/$b\"; then E=已生效; else E=未生效; fi; " +
+    "echo \"== $f（$E）\"; " + sect + " \"$f\"; done; " +
+    "for f in " + FW_DIR + "/*thp_config.cfg; do " +
+    "[ -s \"$f\" ] || continue; b=$(basename \"$f\"); " +
+    "if cmp -s \"$f\" \"/odm/firmware/$b\"; then E=已生效; else E=未生效; fi; " +
+    "echo \"== $f（已解密，$E）\"; " +
+    dump + " \"$f\" 2>/dev/null | " + sect + "; done; true";
   var r = await exec(cmd);
-  $("mTitle").textContent = "thp 配置（修改后重启生效）";
+  var sr = await exec("cat /data/adb/RRS/thp_stock 2>/dev/null");
+  var stock = {}, cur = null;
+  (sr.stdout || "").split(/\r?\n/).forEach(function(l){
+    l = l.trim();
+    if (!l || l.charAt(0) === "#") return;
+    if (l.indexOf("file=") === 0){ cur = l.slice(5).trim(); stock[cur] = {}; return; }
+    var p = l.indexOf("=");
+    if (p > 0 && cur) stock[cur][l.slice(0, p).trim()] = l.slice(p + 1).trim();
+  });
+  var out = [], name = null;
+  (r.stdout || "").split(/\r?\n/).forEach(function(l){
+    if (l.indexOf("== ") === 0){
+      out.push(l);
+      if (l.indexOf("firmware/") >= 0) name = l.split("firmware/")[1].split("（")[0].trim();
+      else name = null;
+      return;
+    }
+    var p = l.indexOf("=");
+    if (p > 0 && name){
+      var k = l.slice(0, p).replace(/^\s+/, "").trim();
+      var v = l.slice(p + 1).trim();
+      var ov = stock[name] && stock[name][k];
+      if (ov && ov !== v) l += " (原始" + ov + ")";
+    }
+    out.push(l);
+  });
+  $("mTitle").textContent = "thp 配置（模块覆盖）";
   modalKind = "thp";
   $("mDel").textContent = "还原";
-  $("mBody").textContent = (r.stdout || "").trim() || "（没有找到 thp 配置：模块 odm 与 /odm 都没有）";
+  $("mBody").textContent = out.join("\n").trim() || "（模块没有 odm/firmware 覆盖）";
   $("modal").classList.add("show");
 }
 async function showLog(){

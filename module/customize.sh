@@ -47,6 +47,57 @@ fi
 [ -z "$FEATURE_DIR" ] && [ "$ROM_XIAOMI" = "1" ] && FEATURE_DIR="/system/product/etc/device_features"
 SRC_DIR="$MODPATH/product/etc/device_features"
 
+# 原厂 /odm 只读挂载：更新模块时 live /odm 可能已是旧模块的 overlay
+ODMFW="/odm/firmware"
+ODMDEV=""
+ODM_RAW=0
+[ "$ROM_XIAOMI" = "1" ] && ODMDEV="$(mount 2>/dev/null | grep ' /odm ' | head -n1 | awk '{print $1}')"
+SLOT="$(getprop ro.boot.slot_suffix)"
+if [ -z "$ODMDEV" ]; then
+    for d in /dev/block/by-name /dev/block/bootdevice/by-name /dev/block/mapper; do
+        [ -d "$d" ] || continue
+        for b in "$d/odm$SLOT" "$d/odm" "$d/odm_a" "$d/odm_b"; do
+            [ -e "$b" ] && ODMDEV="$b" && break 2
+        done
+    done
+fi
+if [ -z "$ODMDEV" ]; then
+    for d in /dev/block/platform/*/by-name /dev/block/platform/*/*/by-name; do
+        [ -d "$d" ] || continue
+        for b in "$d/odm$SLOT" "$d/odm" "$d/odm_a" "$d/odm_b"; do
+            [ -e "$b" ] && ODMDEV="$b" && break 2
+        done
+    done
+fi
+[ -n "$ODMDEV" ] && ui_print "- 自动扫描到 odm 设备: $ODMDEV"
+mkdir -p "$STOCK_TMP" 2>/dev/null
+if [ -n "$ODMDEV" ]; then
+    # 优先用 fsck.erofs 从设备本身读取原厂文件；live mount 可能是模块 overlay
+    FSCK=/system/bin/fsck.erofs
+    [ -x "$FSCK" ] || FSCK=fsck.erofs
+    EX="$STOCK_TMP/odm_extract"
+    mkdir -p "$EX" 2>/dev/null
+    if "$FSCK" --extract="$EX" --overwrite "$ODMDEV" >/dev/null 2>&1 \
+            && ls "$EX/firmware"/*thp_config.* >/dev/null 2>&1; then
+        ODMFW="$EX/firmware"
+        ODM_RAW=1
+        ui_print "- 原厂 /odm 已用 fsck.erofs 只读提取"
+    else
+        mkdir -p "$STOCK_TMP/odm" 2>/dev/null
+        if mount -t erofs -o ro "$ODMDEV" "$STOCK_TMP/odm" 2>/dev/null \
+                || mount -o ro "$ODMDEV" "$STOCK_TMP/odm" 2>/dev/null; then
+            ODMFW="$STOCK_TMP/odm/firmware"
+            ODM_RAW=1
+            ui_print "- 原厂 /odm 只读挂载成功"
+        else
+            ui_print "! 原厂 /odm 提取/挂载失败，使用 live /odm"
+        fi
+    fi
+fi
+
+# 完整固件不需要备份：卸载模块后 /odm overlay 消失，自动回到原厂
+rm -rf /data/adb/RRS/thp_stock_files 2>/dev/null
+
 DEVICE=$(getprop ro.product.device)
 [ -z "$DEVICE" ] && DEVICE=$(getprop ro.product.name)
 [ -z "$DEVICE" ] && DEVICE=$(getprop ro.build.product)
@@ -310,6 +361,12 @@ case "$SAMP_CFG" in
 esac
 [ -z "$FW_RATE" ] && FW_RATE=240
 
+GAME_CFG="$(sed -n 's/^thp_report_rate_game=\([^#]*\).*/\1/p' /data/adb/RRS/config 2>/dev/null | head -n1 | tr -d ' ')"
+case "$GAME_CFG" in
+    ''|off|on|*/*) GAME_RATE="" ;;
+    *) GAME_RATE="$GAME_CFG" ;;
+esac
+
 MOD_ID="$(sed -n 's/^id=//p' "$MODPATH/module.prop" 2>/dev/null | head -n1)"
 [ -z "$MOD_ID" ] && MOD_ID=RRS
 MOD_FINAL="/data/adb/modules/$MOD_ID"
@@ -320,13 +377,51 @@ DUMP="$MODPATH/tools/thp_dump"
 [ -f "$REPACK" ] || REPACK="$MOD_OUT/tools/thp_repack"
 [ -f "$DUMP" ] || DUMP="$MOD_OUT/tools/thp_dump"
 chmod 0755 "$REPACK" "$DUMP" 2>/dev/null
+
+# 安装时重新记录触控固件原值；只有原厂 /odm 可读时才覆盖
+STOCK=/data/adb/RRS/thp_stock
+CAPTURE_STOCK=0
+[ "$ODM_RAW" = "1" ] && CAPTURE_STOCK=1
+if [ "$CAPTURE_STOCK" != "1" ] && [ ! -s "$STOCK" ] && [ ! -e "$MOD_FINAL/odm/firmware" ]; then
+    CAPTURE_STOCK=1
+fi
+if [ "$CAPTURE_STOCK" = "1" ]; then
+    {
+        echo "# model=$(getprop ro.product.device)"
+        for f in "$ODMFW"/*thp_config.ini; do
+            [ -f "$f" ] || continue
+            echo "file=$(basename "$f")"
+            grep -E '^[[:space:]]*(ic_rate_|rate_)' "$f"
+        done
+        for f in "$ODMFW"/*thp_config.cfg; do
+            [ -f "$f" ] || continue
+            echo "file=$(basename "$f")"
+            "$DUMP" "$f" 2>/dev/null | sed -n '/^report_rate/,/^[a-z_]/p' | grep -E '^[[:space:]]*(ic_rate_|rate_)'
+        done
+    } > "$STOCK" 2>/dev/null
+    chmod 644 "$STOCK" 2>/dev/null
+    ui_print "- 已更新 thp_stock"
+else
+    ui_print "- 保留现有 thp_stock（原厂 /odm 不可读）"
+fi
+
 PATCHED=0
-for f in /odm/firmware/*thp_config.ini; do
+for f in "$ODMFW"/*thp_config.ini; do
     [ -f "$f" ] || continue
     n="$(basename "$f")"
-    awk -v v="$FW_RATE" '
-        /^[[:space:]]*ic_rate_normal=/ { sub(/=.*/, "=" v) }
-        /^[[:space:]]*rate_normal=/ { sub(/=.*/, "=" v) }
+    # normal 用 timer 系数反推 IC：rate = ic * coef
+    # 例：Pad 8 Pro coef=2，240 -> 120/240，300 -> 150/300
+    # K100PM (FTS) 无 coef，240 -> 240/240
+    COEF=1
+    C=$(sed -n 's/^[[:space:]]*ic_report_timer_coef[[:space:]]*=[[:space:]]*\([0-9][0-9]*\).*/\1/p' "$f" | head -n1)
+    [ -n "$C" ] && [ "$C" -gt 0 ] && COEF=$C
+    IC_RATE=$((FW_RATE / COEF))
+    [ "$IC_RATE" -lt 1 ] && IC_RATE=1
+    awk -v r="$FW_RATE" -v i="$IC_RATE" -v g="$GAME_RATE" '
+        /^[[:space:]]*ic_rate_normal=/ { sub(/=.*/, "=" i) }
+        /^[[:space:]]*rate_normal=/    { sub(/=.*/, "=" r) }
+        /^[[:space:]]*ic_rate_game=/   { if (g != "") sub(/=.*/, "=" g) }
+        /^[[:space:]]*rate_game=/      { if (g != "") sub(/=.*/, "=" g) }
         { print }' "$f" > "$MOD_OUT/odm/firmware/$n" 2>/dev/null
     if grep -q "rate_normal=$FW_RATE" "$MOD_OUT/odm/firmware/$n" 2>/dev/null; then
         PATCHED=$((PATCHED + 1))
@@ -334,7 +429,7 @@ for f in /odm/firmware/*thp_config.ini; do
         rm -f "$MOD_OUT/odm/firmware/$n"
     fi
 done
-for f in /odm/firmware/*thp_config.cfg; do
+for f in "$ODMFW"/*thp_config.cfg; do
     [ -f "$f" ] || continue
     n="$(basename "$f")"
     if "$REPACK" "$f" "$MOD_OUT/odm/firmware/$n" "$FW_RATE" >/dev/null 2>&1 \
@@ -362,19 +457,8 @@ else
     rm -rf "$MOD_OUT/odm" "$MOD_FINAL/odm"
     ui_print "- 触摸固件: 无可改写配置"
 fi
-THP_MAX=0
-for f in /odm/firmware/*thp_config.ini; do
-    [ -f "$f" ] || continue
-    v=$(grep -oE '^[[:space:]]*(ic_rate_normal|rate_normal|ic_rate_game|rate_game|rate_game_super|ic_rate_game_super)=[0-9]+' "$f" 2>/dev/null | grep -oE '[0-9]+$' | sort -n | tail -1)
-    [ -n "$v" ] && [ "$v" -gt "$THP_MAX" ] && THP_MAX="$v"
-done
-for f in /odm/firmware/*thp_config.cfg; do
-    [ -f "$f" ] || continue
-    v=$("$DUMP" "$f" 2>/dev/null | grep -oE '^[[:space:]]*(ic_rate_normal|rate_normal|ic_rate_game|rate_game|rate_game_super|ic_rate_game_super)=[0-9]+' | grep -oE '[0-9]+$' | sort -n | tail -1)
-    [ -n "$v" ] && [ "$v" -gt "$THP_MAX" ] && THP_MAX="$v"
-done
-echo "$THP_MAX" > /data/adb/RRS/thp_rate_max 2>/dev/null
-chmod 644 /data/adb/RRS/thp_rate_max 2>/dev/null
+# thp_rate_max 已由 thp_stock / 模块固件动态解析，不再单独落盘
+rm -f /data/adb/RRS/thp_rate_max 2>/dev/null
 
 # 卸载安装期间临时挂载的原厂分区
 for d in product odm; do

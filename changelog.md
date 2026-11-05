@@ -1,17 +1,12 @@
-# RRS 1.4.6
+# RRS 1.4.7
 
-## Adaptive refresh rate
-- Content sampling now runs every 0.5s and detects 45fps video (1.5x) for 90Hz output
-- Video switches no longer poison the sampler with 0fps or lock the display at 60Hz
-- Per-app dynamic/auto frame rates survive WebUI reloads and daemon restarts
-- Per-app delays now align to the tail of the global delay list when the app has fewer tiers
-
-## Animation boost
-- Animation boost now applies to both fixed and dynamic tiers
-- Dynamic mode skips animation boost for 1s after touch; fixed mode ignores touch
-- Boost and restore share the same animation window; touch cancels an active boost without restoring
-
-## WebUI and diagnostics
-- Home page tier display includes `auto`
-- `--probe` prints `auto` instead of `-1`
-- Low-brightness threshold follows the system brightness slider instead of the raw backlight percentage
+## Touch sampling
+- Touch firmware patch now respects `ic_report_timer_coef` for normal/vsync modes
+  - 240 report rate becomes 120/240 on 2x devices
+  - 300 report rate becomes 150/300 on 2x devices
+  - FTS devices without the coefficient keep direct 240/240
+- Game and super modes stay direct: 240/240 and 300/300
+- Original `/odm` firmware is read by a read-only mount or `fsck.erofs` extraction; `thp_stock` is refreshed on every install when the original partition is readable
+- Removed `thp_rate_max`; the WebUI derives the maximum from `thp_stock`
+- WebUI shows only the module firmware overlay, marks it effective, and annotates original values
+- Empty firmware sources are skipped instead of writing zero-byte files
