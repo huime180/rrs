@@ -797,7 +797,7 @@ async function setThpRate(game, val){
   function thpShow(v){ return (v && v !== "off") ? v : "off"; }
   if ($("thpN")) $("thpN").textContent = thpShow(thpN);
   if ($("thpG")) $("thpG").textContent = thpShow(thpG);
-  loadThpMax().then(function(mx){ if ($("thpMax")) $("thpMax").textContent = mx > 0 ? (mx + " Hz") : "-"; });
+  refreshThpMax();
   $("dlg").style.display = "none";
   var fw = await applyFwRates(thpN, thpG);
   toast("已设置 " + (val || "off") + (fw ? "，已写入固件" : ""));
@@ -809,7 +809,7 @@ async function loadThpMax(){
   var r = await exec("cat /data/adb/RRS/thp_stock 2>/dev/null");
   var mx = 0;
   (r.stdout || "").split(/\r?\n/).forEach(function(l){
-    var m = l.match(/^[[:space:]]*[a-zA-Z_]*rate[a-zA-Z_]*[[:space:]]*=[[:space:]]*(\d+)/);
+    var m = l.match(/^\s*[a-zA-Z_]*rate[a-zA-Z_]*\s*=\s*(\d+)/);
     if (m) mx = Math.max(mx, parseInt(m[1], 10));
   });
   if (!mx){
@@ -818,6 +818,13 @@ async function loadThpMax(){
   }
   thpMaxRec = mx;
   return thpMaxRec;
+}
+async function refreshThpMax(){
+  thpMaxRec = null;
+  thpMax = null;
+  var mx = await loadThpMax();
+  if ($("thpMax")) $("thpMax").textContent = mx > 0 ? (mx + " Hz") : "-";
+  return mx;
 }
 var thpMax = null;                 /* {n: 日常上限, g: 游戏上限}，0 = 未知 */
 async function thpMaxSupported(){
@@ -833,7 +840,7 @@ async function thpMaxSupported(){
   var r = await exec(cmd);
   var n = 0, g = 0;
   (r.stdout || "").split(/\r?\n/).forEach(function(l){
-    var m = l.match(/^[[:space:]]*([a-zA-Z_]*rate[a-zA-Z_]*)[[:space:]]*=[[:space:]]*(\d{2,4})\s*$/);
+    var m = l.match(/^\s*([a-zA-Z_]*rate[a-zA-Z_]*)\s*=\s*(\d{2,4})\s*$/);
     if (!m) return;
     var k = m[1].toLowerCase(), v = parseInt(m[2], 10);
     if (/game/.test(k)){ if (v > g) g = v; }
@@ -1804,7 +1811,7 @@ async function loadCfg(){
   function thpShow(v){ return (v && v !== "off") ? v : "off"; }
   if ($("thpN")) $("thpN").textContent = thpShow(thpN);
   if ($("thpG")) $("thpG").textContent = thpShow(thpG);
-  loadThpMax().then(function(mx){ if ($("thpMax")) $("thpMax").textContent = mx > 0 ? (mx + " Hz") : "-"; });
+  refreshThpMax();
   offFps = parseInt(m.aod_fps, 10) || 1;
   var ar = await exec("getprop ro.vendor.mi_sf.aod_mode_ddic_refresh_rate 2>/dev/null");
   var av = parseInt((ar.stdout || "").trim(), 10);
@@ -2161,7 +2168,7 @@ function openImportDlg(){
     $("dlg").style.display = "none";
     importSysDefaults("replace");
   });
-  opt("⊕", "合并", "保留现有条目，系统默认项更新/追加", function(){
+  opt("⊕", "合并", "保留现有条目，只追加新条目，不覆盖已有配置", function(){
     $("dlg").style.display = "none";
     importSysDefaults("merge");
   });
@@ -2171,6 +2178,7 @@ function openImportDlg(){
 async function importSysDefaults(mode){
   await exec("sh " + shq(MOD + "/tools/gen_sys_defaults.sh") + " >/dev/null 2>&1");
   var entries = await sysDefaultEntries();
+  await exec("rm -f /data/adb/RRS/sys_defaults 2>/dev/null");
   var added = 0;
   if (mode === "replace"){
     glState.entries = entries;
@@ -2179,15 +2187,10 @@ async function importSysDefaults(mode){
     var map = {};
     glState.entries.forEach(function(e){ map[e.pkg] = e; });
     entries.forEach(function(ne){
-      var old = map[ne.pkg];
-      if (old){
-        if (ne.fps) old.fps = ne.fps;
-        old.game = ne.game;
-        if (ne.name && (!old.name || old.name === old.pkg)) old.name = ne.name;
-      } else {
-        glState.entries.push(ne);
-        added++;
-      }
+      if (map[ne.pkg]) return;              /* 已有条目不动，避免覆盖用户配置 */
+      map[ne.pkg] = ne;
+      glState.entries.push(ne);
+      added++;
     });
   }
   await saveGl();

@@ -1,12 +1,13 @@
-# RRS 1.4.7
+# RRS 1.4.8
 
-## Touch sampling
-- Touch firmware patch now respects `ic_report_timer_coef` for normal/vsync modes
-  - 240 report rate becomes 120/240 on 2x devices
-  - 300 report rate becomes 150/300 on 2x devices
-  - FTS devices without the coefficient keep direct 240/240
-- Game and super modes stay direct: 240/240 and 300/300
-- Original `/odm` firmware is read by a read-only mount or `fsck.erofs` extraction; `thp_stock` is refreshed on every install when the original partition is readable
-- Removed `thp_rate_max`; the WebUI derives the maximum from `thp_stock`
-- WebUI shows only the module firmware overlay, marks it effective, and annotates original values
-- Empty firmware sources are skipped instead of writing zero-byte files
+## Install and boot
+- Installation no longer reads or patches stock firmware; overlays are generated during `post-fs-data` before modules are mounted
+- Stock file hashes are cached so unchanged firmware skips regeneration; system updates rebuild it automatically
+- Touch firmware respects `ic_report_timer_coef`; game and super modes stay direct
+- `fpsList` keeps the stock tiers, adds the maximum rate and 1 Hz
+- `device_features` injection applies only to Xiaomi/Redmi/POCO devices
+
+## WebUI
+- Restored the maximum touch sampling rate on the home panel
+- Sampling options are limited to the detected maximum
+- "Merge" system-default import now appends only and never overwrites existing app settings

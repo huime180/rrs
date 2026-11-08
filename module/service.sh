@@ -16,7 +16,6 @@ for i in $(seq 1 120); do
     [ "$(getprop sys.boot_completed)" = "1" ] && break
     sleep 1
 done
-[ -s /data/adb/RRS/sys_defaults ] || sh "$MODDIR/tools/gen_sys_defaults.sh" >/dev/null 2>&1
 
 n=0
 while [ "$n" -lt 3 ]; do
