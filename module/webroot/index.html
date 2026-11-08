@@ -173,6 +173,7 @@ html[data-theme="dark"] body.wall-on #wall{opacity:.62}
 .dlg-head{display:flex;align-items:center;gap:10px;margin-bottom:8px}
 #dlgTitle{font-size:15.5px;font-weight:650}
 #dlgSub{font-size:11.5px;color:var(--muted);margin-top:1px;word-break:break-all}
+#globalTierCap{white-space:pre-line}
 #dlgBox .opt{padding:10px 4px;font-size:14px}
 .rategrid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;padding:4px 0 8px}
 .rategrid button{padding:9px 0;border-radius:12px;border:1px solid var(--glass-line);background:var(--glass-2);
@@ -632,7 +633,8 @@ function parseGameList(text){
       if (tok.indexOf("delays=") === 0) delays = tok.slice(7);
       else if (tok.indexOf("rate=") === 0) rate = tok.slice(5);
       else if (/^(?:\d+|auto|自适应)(?:,(?:\d+|auto|自适应))*$/i.test(tok)) fps = tok;
-      else if (/^(top|off)$/i.test(tok)) fps = tok.toLowerCase();
+      else if (/^top$/i.test(tok)) fps = "top";
+      else if (/^off$/i.test(tok)) fps = "";
       else if (/^nogame$/i.test(tok)) nogame = true;
       else if (/^game$/i.test(tok)) game = true;
       else name.push(tok);
@@ -861,7 +863,9 @@ async function openThpDlg(game){
   $("dlgRates").style.display = "none";
   var box = $("dlgOpts");
   box.style.display = ""; box.innerHTML = "";
+  var shown = {};
   function opt(v, label){
+    shown[v] = 1;
     var d = document.createElement("div");
     d.className = "opt";
     d.innerHTML = '<span>' + label + '</span>' + (v === cur ? '<span class="o-cur">当前</span>' : "");
@@ -869,7 +873,7 @@ async function openThpDlg(game){
     box.appendChild(d);
   }
   var lim = await thpMaxSupported();
-  var mx = game ? lim.g : lim.n;              /* 0 = 读不到配置，按未知处理 */
+  var mx = Math.max(lim.n || 0, lim.g || 0);  /* 0 = 读不到配置，按未知处理 */
   opt("off", "不修改（off）");
   [240, 360, 480].forEach(function(v){
     if (mx > 0 && v > mx) return;             /* 超过该机型 thp 配置上限的不提供 */
@@ -878,8 +882,8 @@ async function openThpDlg(game){
   if (mx === 0 || mx >= 480)
     opt("on", "自动（≥120 → 480，其余 240）");   /* 上限不足 480 的机型不提供自动，避免写入不支持的值 */
   var curNum = parseInt(cur, 10);
-  if (curNum > 0 && [240, 360, 480].indexOf(curNum) < 0)
-    opt(cur, cur + " Hz（当前）");             /* 当前值不在预设里也列出来 */
+  if (curNum > 0 && !shown[String(curNum)])
+    opt(String(curNum), curNum + " Hz（当前）"); /* 当前值即使超过检测上限也保留出来 */
   var wrap = document.createElement("div");
   wrap.className = "field"; wrap.style.marginTop = "10px";
   wrap.innerHTML = '<label>自定义（单个数值，或 185:370,165:330 这种按刷新率列表）</label>' +
@@ -948,7 +952,6 @@ function gameFpsText(v){
   v = String(v || "");
   if (!v) return "未设置";
   if (v === "top") return "最高档";
-  if (v === "off") return "不干预";
   if (v === "smart" || v === "dyn") return "动态（跟随全局档位）";
   return v + " Hz";
 }
@@ -986,7 +989,6 @@ function openGameFpsDlg(){
   }
   opt("▲", "最高档", gameFps === "top", function(){ setGameFps("top"); });
   opt("◐", "动态（跟随全局档位）", gameFps === "dyn" || gameFps === "smart", function(){ setGameFps("dyn"); });
-  opt("∅", "不干预", gameFps === "off", function(){ setGameFps("off"); });
   opt("🕐", "指定帧率 ›", /^\d+$/.test(String(gameFps)), function(){
     box.style.display = "none";
     var r = $("dlgRates");
@@ -1427,7 +1429,6 @@ function saveEntry(pkg, name, mut){
 function fpsText(fps){
   if (fps === undefined || fps === null || fps === "") return "";
   if (fps === "top") return "最高";
-  if (fps === "off") return "不干预";
   if (fps === "auto" || fps === "自适应") return "自适应";
   if (String(fps).indexOf(",") >= 0){
     var parts = String(fps).split(",").map(function(x){
@@ -1441,16 +1442,20 @@ function fpsText(fps){
 async function openAppRateDlg(pkg, name){
   var e0 = findEntry(pkg);
   var cur = (e0 && e0.rate) || "";
-  var rec = await loadThpMax();
+  var isGame = !!(e0 && e0.game);
+  var lim = await thpMaxSupported();
+  var max = Math.max(lim.n || 0, lim.g || 0);
   dlgLockSwitch(false);
   $("dlgTitle").textContent = "触控采样率";
-  $("dlgSub").textContent = (rec > 0 ? "当前最高采样率：" + rec + "Hz" : "") + (cur ? "（当前：" + cur + "）" : "");
+  $("dlgSub").textContent = (max > 0 ? "当前最高采样率：" + max + "Hz" : "") + (cur ? "（当前：" + cur + "）" : "");
   $("dlgIcon").style.display = "none";
   $("dlgRates").style.display = "none";
   var box = $("dlgOpts");
   box.style.display = "";
   box.innerHTML = "";
+  var shown = {};
   function opt(v, label){
+    shown[v] = 1;
     var d = document.createElement("div");
     d.className = "opt";
     d.innerHTML = '<span>' + label + '</span>' + ((v || "") === cur ? '<span class="o-cur">当前</span>' : "");
@@ -1459,12 +1464,14 @@ async function openAppRateDlg(pkg, name){
     });
     box.appendChild(d);
   }
-  opt("", "跟随全局（游戏）");
+  opt("", isGame ? "跟随全局（游戏）" : "跟随全局（日常）");
   opt("off", "不修改（off）");
   [240, 360, 480].forEach(function(v){
-    if (rec > 0 && v > rec) return;
+    if (max > 0 && v > max) return;
     opt(String(v), v + " Hz");
   });
+  var curNum = parseInt(cur, 10);
+  if (curNum > 0 && !shown[String(curNum)]) opt(String(curNum), curNum + " Hz（当前）");
   var wrap = document.createElement("div");
   wrap.className = "field";
   wrap.style.marginTop = "10px";
@@ -1503,7 +1510,6 @@ function rateChooser(host, getSel, onApply, onCancel, delays){
     }
     html += '<div class="btns"><button class="btn primary" data-act="apply">应用</button>' +
       '<button class="btn" data-act="top">' + (effectiveCap() > 0 ? ("最高 " + effectiveCap() + " Hz") : "最高") + '</button>' +
-      '<button class="btn" data-act="off">不干预</button>' +
       '<button class="btn" data-act="cancel">取消</button></div>';
     host.innerHTML = html;
     Array.prototype.forEach.call(host.querySelectorAll("button[data-rate]"), function(b){
@@ -1531,7 +1537,6 @@ function rateChooser(host, getSel, onApply, onCancel, delays){
         if (act === "cancel"){ onCancel(); return; }
         if (delays) delays.set(dval);
         if (act === "top"){ onApply("top"); return; }
-        if (act === "off"){ onApply("off"); return; }
         var out = sel.filter(function(v){ return v !== "auto"; }).sort(function(a, c){ return c - a; });
         if (sel.indexOf("auto") >= 0) out.push("auto");
         onApply(out.join(","));
@@ -1564,7 +1569,7 @@ function openAppDlg(pkg, name){
     div.addEventListener("click", fn);
     box.appendChild(div);
   }
-  var hasRate = cur !== null && cur !== "" && cur !== "top" && cur !== "off";
+  var hasRate = cur !== null && cur !== "" && cur !== "top";
   var listed = isGamePkg(pkg, manualMap());
   opt("↺", "跟随全局", cur === null || cur === "", function(){
     saveEntry(pkg, name, function(e){ e.fps = ""; });
@@ -1596,9 +1601,6 @@ function openAppDlg(pkg, name){
     });
     opt("▲", "最高档", cur === "top", function(){
       saveEntry(pkg, name, function(e){ e.fps = "top"; });
-    });
-    opt("∅", "不干预", cur === "off", function(){
-      saveEntry(pkg, name, function(e){ e.fps = "off"; });
     });
   }
   opt("⏱", "触控采样率" + (e0 && e0.rate ? "（" + e0.rate + "）" : "（跟随全局）"), false, function(){
@@ -1758,7 +1760,12 @@ function renderGlobalRates(){
     });
   });
   var dt = defaultTiersText();
-  if (dt) $("globalTierCap").textContent = "档位（单选 = 固定，多选 = 动态）默认：" + dt;
+  if (dt){
+    var capText = "档位（单选 = 固定，多选 = 动态）默认：" + dt;
+    if (curSmartTiers.indexOf("auto") >= 0)
+      capText += "\n自适应：在前一档位时每500ms采样帧率一次，取最后4次的众数决定闲时刷新率，对应关系30-60、45-90、60-60、90-90…该功能会增加功耗，只适用于视频应用，一般不建议开启，";
+    $("globalTierCap").textContent = capText;
+  }
   if ($("tiers")){
     var tl = curSmartTiers.length ? curSmartTiers
       : (effTiersCache.length ? effTiersCache
@@ -1789,7 +1796,7 @@ async function loadCfg(){
   cfgCap = parseInt(m.fps_cap, 10) || 0;
   $("cfg_cap").value = m.fps_cap || "0";
   var bl = parseInt(m.bright_low, 10);
-  if (isNaN(bl)) bl = 8;
+  if (isNaN(bl)) bl = 4;
   if (bl > 100) bl = 100;
   $("cfg_bright_low").value = String(bl);
   $("brightLowVal").textContent = bl + "%";
@@ -1799,6 +1806,7 @@ async function loadCfg(){
   renderBrightCap(parseInt(m.bright_low_cap, 10) || 0);
   $("cfg_delays").value = m.smart_delays || "";
   gameFps = m.game_fps || "top";
+  if (gameFps === "off") gameFps = "top";
   $("cfgGameVal").textContent = gameFpsText(gameFps);
   $("cfg_log").checked = (m.log || "0") === "1";
   $("cfg_auto_gamelist").checked = (m.auto_gamelist || "1") === "1";

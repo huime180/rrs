@@ -1,13 +1,22 @@
-# RRS 1.4.8
+# RRS 1.4.9
 
-## Install and boot
-- Installation no longer reads or patches stock firmware; overlays are generated during `post-fs-data` before modules are mounted
-- Stock file hashes are cached so unchanged firmware skips regeneration; system updates rebuild it automatically
-- Touch firmware respects `ic_report_timer_coef`; game and super modes stay direct
-- `fpsList` keeps the stock tiers, adds the maximum rate and 1 Hz
-- `device_features` injection applies only to Xiaomi/Redmi/POCO devices
+## Installation
+- Restrict installation to Xiaomi / Redmi / POCO devices
+- Warn when no KernelSU metamodule is present and recommend hybrid_mount VFS mode; installation still continues
+- Remove the brand check from the boot-time overlay builder
 
-## WebUI
-- Restored the maximum touch sampling rate on the home panel
-- Sampling options are limited to the detected maximum
-- "Merge" system-default import now appends only and never overwrites existing app settings
+## Refresh rate
+- Remove the "do not intervene" refresh-rate option from game and per-app settings
+- Default game refresh policy is now the highest tier; legacy `off` entries follow the global policy
+- Show the adaptive sampling explanation under the global refresh-rate tiers when adaptive is selected
+
+## Touch sampling
+- Per-app sampling follows global is labeled daily or game according to the entry type
+- Sampling options are limited by the overall maximum and the current value stays visible
+- Screen-on only re-applies per-app sampling; a dedicated screen logcat runs only for entries with per-app sampling
+- Re-apply the current app when AppList changes
+- Remove sampling command write tests and readback checks; a writable node is accepted as supported
+
+## Other
+- Default low-brightness threshold is 4%
+- Force `support_aod_fullscreen` to true; leave `support_max_fps` unchanged

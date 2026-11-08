@@ -70,10 +70,13 @@ static int g_cur_fps = -1;
 static int g_orig_sf = -1;
 
 static volatile int g_stop;
+static volatile int g_screen_reapply;
 static int g_user = 0;
 static int g_inotify_fd = -1;
 static int g_wake_wr = -1;   /* fg_thread 唤醒主循环的管道写端 */
 static pid_t g_logcat_pid = -1;
+static volatile int g_screen_watch;
+static pid_t g_screen_logcat_pid = -1;
 static int g_touch_fd = -1;
 static char g_touch_path[64];
 
@@ -82,7 +85,7 @@ static int g_log_fd = -1;
 static long g_log_size;
 static pthread_mutex_t g_ext_lock;
 static char g_ext[MAX_APPS][128];
-static int g_ext_fps[MAX_APPS];              /* 0=不指定 -1=top -2=off -3=多档 >0=帧率 */
+static int g_ext_fps[MAX_APPS];              /* 0=全局 -1=top -3=多档 >0=帧率 */
 #define APP_TIERS_MAX 8
 static int g_ext_tiers[MAX_APPS][APP_TIERS_MAX]; /* 多档（智能）时使用 */
 static int g_ext_delays[MAX_APPS][APP_TIERS_MAX]; /* 该应用每段停留（ms），可缺省 */
@@ -96,7 +99,7 @@ static unsigned char g_ext_game[MAX_APPS];   /* 1=游戏条目（无刷新率）
 static int g_ext_count;
 
 static int g_game_front;
-static int g_app_fps;                   /* 前台应用单独刷新率：0=无 -1=top -2=off -3=多档 >0=帧率 */
+static int g_app_fps;                   /* 前台应用单独刷新率：0=全局 -1=top -3=多档 >0=帧率 */
 static int g_fg_tiers[APP_TIERS_MAX];   /* 前台应用的多档（智能） */
 static int g_fg_delays[APP_TIERS_MAX];  /* 前台应用每段停留（ms），空则用全局 */
 static int g_fg_ndelays;
@@ -112,7 +115,7 @@ static int g_game_active;
 static int cfg_fps_cap;                 /* 最高刷新率，0 = 本机最高 */
 static char cfg_bright_low_mode[8] = "lock";  /* lock = 低亮度锁定单档；dyn = 动态档位 */
 static char cfg_anim_boost[8] = "cap";  /* cap = 本机最高刷新率；ladder = 档位最高档 */
-static int cfg_bright_low = 8;   /* 亮度阈值百分比（相对系统亮度滑块 0－255），0 = 关闭 */
+static int cfg_bright_low = 4;   /* 亮度阈值百分比（相对系统亮度滑块 0－255），0 = 关闭 */
 static int cfg_bright_low_cap = 144;    /* 低亮度时刷新率上限(Hz) */
 static int g_low_cap;                   /* 当前生效的低亮度上限，0 = 未触发 */
 static long long g_low_next;            /* 下次亮度检查时间 */
@@ -154,7 +157,7 @@ static int cfg_log = 0;                 /* 默认关闭；1=写日志 */
 
 static int g_touch_contact_cap;        /* 0=无接触事件（退化为任意事件即触摸）1=有 */
 static int cfg_auto_gamelist = 1;       /* 启动时自动生成本机游戏列表 */
-static char cfg_game_fps[16] = "top";   /* 游戏刷新率策略：top(默认)/off/smart/数值 */
+static char cfg_game_fps[16] = "top";  /* 游戏刷新率策略：top(默认)/dyn/数值 */
 
 /* 保存被模块改写前的 is_smart_fps，退出时恢复（空串表示原本是 null） */
 static char g_orig_smart[8];
@@ -272,7 +275,7 @@ static void load_config(void)
 {
     /* 重载时先回到默认值，避免删掉的键仍保留旧值 */
     cfg_fps_cap = 0;
-    cfg_bright_low = 8;
+    cfg_bright_low = 4;
     snprintf(cfg_bright_low_mode, sizeof cfg_bright_low_mode, "lock");
     snprintf(cfg_anim_boost, sizeof cfg_anim_boost, "cap");
     cfg_bright_low_cap = 144;
@@ -341,7 +344,7 @@ static void load_config(void)
                 snprintf(cfg_smart_delays, sizeof cfg_smart_delays, "%s", v);
         }
         else if (strcmp(k, "game_fps") == 0) {
-            if (v[0])
+            if (v[0] && strcmp(v, "off") != 0)
                 snprintf(cfg_game_fps, sizeof cfg_game_fps, "%s", v);
         }
         else if (strcmp(k, "thp_report_rate_normal") == 0)
@@ -1007,73 +1010,11 @@ static void set_sampling(int fps, int game)
         log_msg("thp_report_rate : apply %d [%d -> %d]", val, from, val);
     else
         log_msg("thp_report_rate : apply %d", val);
+
 }
 
 static int is_game_any(const char *pkg);
 
-/* off（不干预）：先跟随应用请求的帧率，读不到再退回系统偏好 */
-static void apply_system_rate(void)
-{
-    char out[64] = { 0 };
-    int rate = 0;
-
-    /* dumpsys display 里的 appRequest render 上界就是应用请求的帧率 */
-    {
-        char *big = malloc(65536);
-        if (big != NULL && run_cap((char *const[]){ "dumpsys", "display", NULL },
-                                   big, 65536) == 0) {
-            char *p = strstr(big, "mDisplayModeSpecs=");   /* 主显示器的规格 */
-            p = p ? strstr(p, "appRequest=physical:") : NULL;
-            if (p != NULL) {
-                char *r = strstr(p, "render:");
-                if (r != NULL) {
-                    char *lp = strchr(r, '(');
-                    char *rp = lp ? strchr(lp, ')') : NULL;
-                    if (lp != NULL && rp != NULL) {
-                        double mx = 0;
-                        for (char *q = lp; q < rp; q++) {
-                            if (*q >= '0' && *q <= '9')
-                                continue;
-                            double v = strtod(q, &q);
-                            if (v > mx)
-                                mx = v;
-                        }
-                        rate = (int)(mx + 0.5);
-                    }
-                }
-            }
-            free(big);
-        }
-    }
-    if (rate > 0) {
-        int ok = 0;
-        for (int i = 0; i < g_nmodes; i++)
-            if (g_modes[i].fps == rate) { ok = 1; break; }
-        if (!ok)
-            rate = 0;
-    }
-    if (run_cap((char *const[]){ "settings", "get", "secure", "user_refresh_rate", NULL },
-                out, sizeof out) == 0)
-        rate = atoi(trim(out));
-    if (rate <= 0) {
-        if (run_cap((char *const[]){ "settings", "get", "system", "peak_refresh_rate", NULL },
-                    out, sizeof out) == 0)
-            rate = atoi(trim(out));
-    }
-    int sf = -1;
-    for (int i = 0; i < g_nmodes; i++)
-        if (g_modes[i].fps == rate) { sf = g_modes[i].sf; break; }
-    if (sf < 0)
-        return;
-    if (g_dryrun) {
-        log_msg("DRY fps : system rate %dHz", rate);
-        return;
-    }
-    if (set_1035(sf) == 0) {
-        g_cur_fps = rate;
-        log_msg("fps : system rate %dHz (sfModeId %d)", rate, sf);
-    }
-}
 
 static int read_int_file(const char *p)
 {
@@ -1192,7 +1133,7 @@ static int game_smart_mode(void)
 
 static void apply_game_fps(void)
 {
-    if (cfg_game_fps[0] == '\0' || strcmp(cfg_game_fps, "off") == 0 ||
+    if (cfg_game_fps[0] == '\0' ||
         strcmp(cfg_game_fps, "dyn") == 0 || strcmp(cfg_game_fps, "smart") == 0)
         return;
     if (strcmp(cfg_game_fps, "top") == 0) {
@@ -2181,8 +2122,6 @@ static void load_ext_games(void)
                     }
                 } else if (strcasecmp(tok, "top") == 0) {
                     fps = -1;
-                } else if (strcasecmp(tok, "off") == 0) {
-                    fps = -2;
                 }
             }
 
@@ -2238,6 +2177,7 @@ static int ext_fps_for(const char *pkg)
     for (int i = 0; i < g_ext_count; i++) {
         if (strcmp(g_ext[i], pkg) == 0) {
             r = g_ext_fps[i];
+            if (r == -2) r = 0;
             break;
         }
     }
@@ -2350,7 +2290,7 @@ static int line_has_rate(const char *t)
          tok = strtok_r(NULL, " \t", &save), idx++) {
         if (idx == 0)
             continue;
-        if (strcasecmp(tok, "top") == 0 || strcasecmp(tok, "off") == 0 ||
+        if (strcasecmp(tok, "top") == 0 ||
             strcasecmp(tok, "auto") == 0 || strcmp(tok, "自适应") == 0) {
             rate = 1;
             continue;
@@ -2898,11 +2838,11 @@ static void fmt_fps_mode(int app_fps, const int *tiers, int n, char *out, size_t
 {
     if (app_fps == 0) { snprintf(out, sz, "global"); return; }
     if (app_fps == -1) { snprintf(out, sz, "top"); return; }
-    if (app_fps == -2) { snprintf(out, sz, "off"); return; }
+    if (app_fps == -2) { snprintf(out, sz, "global"); return; }
     if (app_fps == -3) {
         if (tiers != NULL)
             tier_fmt(out, sz, tiers, n);
-        if (out[0] == '\0') snprintf(out, sz, "off");
+        if (out[0] == '\0') snprintf(out, sz, "global");
         return;
     }
     snprintf(out, sz, "%d", app_fps);
@@ -2916,8 +2856,6 @@ static void fmt_game_mode(char *out, size_t sz)
         if (out[0] == '\0') snprintf(out, sz, "top");
     } else if (strcmp(cfg_game_fps, "top") == 0) {
         snprintf(out, sz, "top");
-    } else if (strcmp(cfg_game_fps, "off") == 0) {
-        snprintf(out, sz, "off");
     } else {
         snprintf(out, sz, "%s", cfg_game_fps);
     }
@@ -3024,6 +2962,7 @@ static void fg_apply_pkg(const char *pkg)
         int fg_tiers[APP_TIERS_MAX];
         int fg_ntiers = ext_tiers_for(pkg, fg_tiers, APP_TIERS_MAX);
         ext_cfg_for(pkg, g_fg_delays, &g_fg_ndelays, g_fg_rate, sizeof g_fg_rate);
+        g_screen_watch = g_fg_rate[0] && strcmp(g_fg_rate, "off") != 0;
         fg_set_game(game, ext_fps_for(pkg), fg_tiers, fg_ntiers);
     }
 }
@@ -3094,6 +3033,90 @@ static void fg_poll_loop(void)
             poll(NULL, 0, 100);
         }
     }
+}
+
+/* 仅在当前应用配置了单独采样率时监听锁屏/开屏事件 */
+static void screen_logcat_loop(void)
+{
+    for (;;) {
+        if (g_stop)
+            return;
+        if (!g_screen_watch) {
+            if (g_screen_logcat_pid > 0) {
+                kill(g_screen_logcat_pid, SIGTERM);
+                waitpid(g_screen_logcat_pid, NULL, 0);
+                g_screen_logcat_pid = -1;
+            }
+            poll(NULL, 0, 200);
+            continue;
+        }
+        int fds[2];
+        if (pipe2(fds, O_CLOEXEC) < 0) {
+            poll(NULL, 0, 500);
+            continue;
+        }
+        pid_t pid = fork();
+        if (pid == 0) {
+            close(fds[0]);
+            dup2(fds[1], STDOUT_FILENO);
+            close(fds[1]);
+            prctl(PR_SET_PDEATHSIG, SIGTERM);
+            execl("/system/bin/logcat", "logcat", "-b", "events", "-s",
+                  "screen_toggled", "-v", "epoch", (char *)NULL);
+            _exit(127);
+        }
+        if (pid < 0) {
+            close(fds[0]);
+            close(fds[1]);
+            poll(NULL, 0, 500);
+            continue;
+        }
+        close(fds[1]);
+        g_screen_logcat_pid = pid;
+        int fd = fds[0];
+        fcntl(fd, F_SETFL, fcntl(fd, F_GETFL, 0) | O_NONBLOCK);
+        for (;;) {
+            if (g_stop || !g_screen_watch)
+                break;
+            struct pollfd pfd;
+            pfd.fd = fd;
+            pfd.events = POLLIN;
+            pfd.revents = 0;
+            int r = poll(&pfd, 1, 500);
+            if (r < 0) {
+                if (errno == EINTR)
+                    continue;
+                break;
+            }
+            if (r == 0)
+                continue;
+            char buf[1024];
+            ssize_t n = read(fd, buf, sizeof buf - 1);
+            if (n <= 0)
+                break;
+            buf[n] = '\0';
+            if (strstr(buf, "screen_toggled: 1") != NULL) {
+                g_screen_reapply = 1;
+                if (g_wake_wr >= 0) {
+                    char c = 1;
+                    if (write(g_wake_wr, &c, 1) < 0) {
+                    }
+                }
+            }
+        }
+        close(fd);
+        kill(pid, SIGTERM);
+        waitpid(pid, NULL, 0);
+        g_screen_logcat_pid = -1;
+        poll(NULL, 0, 200);
+    }
+}
+
+static void *screen_thread_fn(void *arg)
+{
+    (void)arg;
+    screen_logcat_loop();
+    return NULL;
 }
 
 /* 监听动画相关日志（转场/通知栏/应用启停），用于动画加速 */
@@ -3550,6 +3573,10 @@ int main(int argc, char **argv)
 
     pthread_t th;
     pthread_create(&th, NULL, fg_thread, NULL);
+
+    pthread_t sth;
+    pthread_create(&sth, NULL, screen_thread_fn, NULL);
+    pthread_detach(sth);
     {
         pthread_t ath;
         pthread_create(&ath, NULL, anim_thread, NULL);
@@ -3564,8 +3591,12 @@ int main(int argc, char **argv)
 
     while (!g_stop) {
         time_t now = time(NULL);
-
-
+        int screen_reapply = 0;
+        if (g_screen_reapply) {
+            g_screen_reapply = 0;
+            screen_reapply = 1;
+            g_last_samp_rate[0] = g_last_samp_rate[1] = -1;
+        }
 
         int forced = g_app_fps;
         if (forced != cur_forced) {
@@ -3581,8 +3612,6 @@ int main(int argc, char **argv)
 
                     g_app_state = -1;
                     g_app_next_down = 0;
-                } else if (forced == -2) {
-                    apply_system_rate();
                 } else {
                     int hz = (forced == -1) ? g_top : forced;
                     if (hz > 0)
@@ -3932,6 +3961,12 @@ int main(int argc, char **argv)
             }
         }
 
+        if (screen_reapply && g_fg_rate[0] && strcmp(g_fg_rate, "off") != 0) {
+            int target = g_cur_fps > 0 ? g_cur_fps : (g_top > 0 ? g_top : 0);
+            if (target > 0)
+                set_sampling(target, is_game_any(g_fg_pkg) ? 1 : 0);
+        }
+
         int timeout = -1;   /* 无计时任务时阻塞等事件，不做兜底轮询 */
         /* 全局档位降档计时 */
         if (smart == 1 && state < g_ntiers - 1 && next_down > 0) {
@@ -4039,6 +4074,7 @@ int main(int argc, char **argv)
                         load_gb_games();
                     } else if (strcmp(name, "AppList") == 0 || strcmp(name, "GameList") == 0) {
                         load_ext_games();
+                        fg_apply_pkg(g_fg_pkg);
                         log_msg("app list reloaded: %d", g_ext_count);
                     }
                     p += sizeof(struct inotify_event) + ev->len;

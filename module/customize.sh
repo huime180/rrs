@@ -1,5 +1,7 @@
 #!/system/bin/sh
 
+command -v abort >/dev/null 2>&1 || abort() { ui_print "! $*"; exit 1; }
+
 AUTOMOUNT=true
 SKIPMOUNT=true
 PROPFILE=true
@@ -21,6 +23,26 @@ ui_print "- 作者：$B"
 ui_print "- $D    "
 ui_print "- *******************************"
 
+BRAND="$(getprop ro.product.brand) $(getprop ro.product.manufacturer)"
+if ! echo "$BRAND" | grep -qiE 'xiaomi|redmi|poco'; then
+    ui_print "! 本模块仅支持 Xiaomi / Redmi / POCO 设备"
+    abort "当前设备品牌：$BRAND"
+fi
+
+if [ "$KSU" = "true" ] || [ -d /data/adb/ksu ]; then
+    META=0
+    for d in /data/adb/modules/*; do
+        [ -d "$d" ] || continue
+        case "$(basename "$d")" in
+            hybrid_mount|meta-*|meta_*) META=1 ;;
+        esac
+    done
+    if [ "$META" = "0" ]; then
+        ui_print "! 缺少元模块，无法挂载 /odm 与 /product"
+        ui_print "请先安装元模块，推荐hybrid_mount VFS模式"
+    fi
+fi
+
 CFG=/data/adb/RRS/config
 mkdir -p /data/adb/RRS
 if [ ! -f "$CFG" ] && [ -f "$MODPATH/config.example" ]; then
@@ -40,7 +62,7 @@ done
 
 if [ -f "$CFG" ] && ! grep -q '^sampling_node=' "$CFG" 2>/dev/null; then
     for n in /sys/class/touch/touch_dev/touch_thp_ic_cmd /sys/class/touch/touch_dev/touch_ic_cmd /sys/class/touch/touch_dev/touch_cmd; do
-        if [ -w "$n" ] && printf '8 3007 240 1' > "$n" 2>/dev/null; then
+        if [ -e "$n" ] && [ -w "$n" ]; then
             printf 'sampling_node=%s\n' "$n" >> "$CFG"
             grep -q '^sampling_cmd=' "$CFG" 2>/dev/null || printf 'sampling_cmd=8 3007 %%d 1\n' >> "$CFG"
             ui_print "- 触控写节点：$n"

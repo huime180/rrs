@@ -5,8 +5,6 @@ MODPATH="$MODDIR"
 mkdir -p /data/adb/RRS 2>/dev/null
 ui_print(){ :; }
 set_perm_recursive(){ :; }
-ROM_XIAOMI=0
-
 HASH_FILE=/data/adb/RRS/stock_hashes
 STOCK_HASH=$(sha256sum /odm/firmware/*thp_config.* /product/etc/device_features/*.xml 2>/dev/null)
 if [ -n "$STOCK_HASH" ] && [ -s "$HASH_FILE" ] && [ "$STOCK_HASH" = "$(cat "$HASH_FILE" 2>/dev/null)" ] \
@@ -17,13 +15,6 @@ if [ -n "$STOCK_HASH" ] && [ -s "$HASH_FILE" ] && [ "$STOCK_HASH" = "$(cat "$HAS
 fi
 BUILD_OK=1
 # device_features
-
-BRAND="$(getprop ro.product.brand) $(getprop ro.product.manufacturer)"
-if echo "$BRAND" | grep -qiE 'xiaomi|redmi|poco'; then
-    ROM_XIAOMI=1
-else
-    ui_print "- 非小米设备：跳过 device_features 注入"
-fi
 
 FEATURE_DIR="/product/etc/device_features"
 [ -d "$FEATURE_DIR" ] || FEATURE_DIR="/system/product/etc/device_features"
@@ -37,13 +28,11 @@ DEVICE=$(getprop ro.product.device)
 [ -z "$DEVICE" ] && DEVICE=$(getprop ro.build.product)
 
 XML=""
-if [ "$ROM_XIAOMI" = "1" ]; then
-    if [ -n "$DEVICE" ] && [ -f "$FEATURE_DIR/$DEVICE.xml" ]; then
-        XML="$FEATURE_DIR/$DEVICE.xml"
-    else
-        set -- "$FEATURE_DIR"/*.xml
-        [ "$#" -eq 1 ] && [ -f "$1" ] && XML="$1"
-    fi
+if [ -n "$DEVICE" ] && [ -f "$FEATURE_DIR/$DEVICE.xml" ]; then
+    XML="$FEATURE_DIR/$DEVICE.xml"
+else
+    set -- "$FEATURE_DIR"/*.xml
+    [ "$#" -eq 1 ] && [ -f "$1" ] && XML="$1"
 fi
 
 if [ -z "$XML" ]; then
@@ -80,6 +69,11 @@ else
         [ -z "$LINES_OUT" ] && LINES_OUT=0
         if grep -q '</features>' "$OUT.tmp" 2>/dev/null && [ "$LINES_OUT" -ge $((LINES_SRC / 2)) ]; then
             mv -f "$OUT.tmp" "$OUT"
+            if grep -q 'name="support_aod_fullscreen"' "$OUT"; then
+                sed -i -E '/name="support_aod_fullscreen"/ s/>[^<]*</>true</' "$OUT"
+            else
+                sed -i '/<\/features>/i\    <bool name="support_aod_fullscreen">true</bool>' "$OUT"
+            fi
             mkdir -p "$MODPATH/system/product/etc/device_features" 2>/dev/null
             cp -f "$OUT" "$MODPATH/system/product/etc/device_features/$FNAME" 2>/dev/null
             ui_print "- device_features: $FNAME"
@@ -110,7 +104,7 @@ done
 
 if [ -f "$CFG" ] && ! grep -q '^sampling_node=' "$CFG" 2>/dev/null; then
     for n in /sys/class/touch/touch_dev/touch_thp_ic_cmd /sys/class/touch/touch_dev/touch_ic_cmd /sys/class/touch/touch_dev/touch_cmd; do
-        if [ -w "$n" ] && printf '8 3007 240 1' > "$n" 2>/dev/null; then
+        if [ -e "$n" ] && [ -w "$n" ]; then
             printf 'sampling_node=%s\n' "$n" >> "$CFG"
             grep -q '^sampling_cmd=' "$CFG" 2>/dev/null || printf 'sampling_cmd=8 3007 %%d 1\n' >> "$CFG"
             ui_print "- 触控写节点：$n"
